@@ -1,0 +1,30 @@
+THICC TOOL 002 - Clasificacion ponderada experimental
+
+Extraer el ZIP completo en una carpeta nueva y ejecutar Thicc_tool.bat.
+Conservar la version 001. Para probar clasificacion automatica en un mod ya
+configurado, usar Reset automatic (borra roles, anatomia y landmarks guardados;
+hacer copia de thicc.json antes si se desean conservar). Los roles manuales
+siempre tienen prioridad. La columna Role tiene tooltip con puntuacion,
+contribuciones, cobertura y resultado automatico; la consola incluye el detalle.
+
+Pesos: Surface 40, Stickman individual 25, Welded 12, Shape 8, altura 6,
+Naming 5, veto 3, vertices 1. Skin >=40 (fuerte >=60), ambiguo >=20,
+garment <=-20, resto indeterminado. Ambiguo/indeterminado se trata como
+Clothing (o Frozen por reglas originales de proteccion), nunca Skin automatico.
+Veto solo resta 3. Ausencia de datos no suma ni resta, sin renormalizar.
+Componentes 0/1/2 fijos: pelo frontal/posterior/rostro, Frozen automatico;
+rostro incluido en anatomia automatica. Selecciones manuales se respetan.
+
+Se ejecutan superficies all y raw sin veto; se usa all cuando esta disponible,
+raw como fallback. Stickman individual no depende de roles y no penaliza
+esqueletos parciales. No se combinan IDs locales para Stickman global.
+Los modulos de deteccion de Lab estan aislados en detection002/; el motor
+original de deformacion y sus referencias siguen siendo los mismos.
+No se implemento una nueva deteccion regional ni union automatica de variantes;
+los roles y regiones de Wardrobe deben revisarse antes de aplicar.
+El diagnostico original puede actualizar su cache .thicc_surface_cache.json.
+
+Pruebas: compilacion de Python, reproduccion de puntuaciones de los seis logs
+v0.1 (ver RESULTADOS_REPLAY_002.txt), pruebas sinteticas de integracion.
+No equivale a ejecutar los seis mods reales; no se probo GUI Windows ni Apply
+sobre mods reales. El analisis puede tardar mas por las dos pasadas de superficie.

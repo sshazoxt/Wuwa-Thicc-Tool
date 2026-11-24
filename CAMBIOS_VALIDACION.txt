@@ -1,0 +1,1 @@
+Validación integrada en el motor: se verifican los rangos DrawIndexed, múltiplos de tres y referencias reales a Position.buf antes del análisis. Se corrige el uso de base_vertex en verts()/tris(). Conserva la fase 1.9B como diagnóstico no decisorio; no se declara resuelta la clasificación automática de variantes.

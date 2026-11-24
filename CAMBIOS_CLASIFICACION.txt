@@ -1,0 +1,15 @@
+THICC TOOL 3.2.6 - clasificacion colaborativa (experimental)
+
+Integracion real: wwmi_role_evidence.assess_auto_skin se llama dentro de
+thicc_edit.run ANTES de construir anatomy_names, SKIN y el stickman.
+Una sugerencia automatica de piel es descartada si la malla presenta
+>=12 islas de triangulos, la isla dominante ocupa <35% de los triangulos
+y la pieza tiene >=100 triangulos. NO se asigna automaticamente ropa o congelado.
+Los roles manuales skin/move/freeze tienen prioridad absoluta.
+La GUI recibe role_evidence en el resultado del analisis existente.
+
+Limitaciones: los umbrales son heuristicas conservadoras pendientes de
+validacion en Suoming, Hsin e Iuno. Fragmentacion no prueba tipo de superficie.
+No se han conectado aun variantes condicionales ni texturas a la decision.
+Los archivos de deformacion, axilas, muslos y Wardrobe no se modifican.
+Usar primero ANALIZAR; revisar categorias antes de APLICAR.

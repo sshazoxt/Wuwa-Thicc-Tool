@@ -1,0 +1,14 @@
+FASE 1.9C - reconciliacion conservadora de conectividad (22/11/2026)
+Archivos: thicc_edit.py y wwmi_role_evidence.py.
+El veto automatico por fragmentacion de indices puede levantarse SOLO si:
+- el componente ya era candidato automatico a piel;
+- el welding geometrico muestra <=2 islas y >=90% de triangulos dominantes;
+- el nombre del componente contiene skin, body, nude o basebody.
+No se crean nuevos candidatos a piel por welding. Roles manuales, anatomia manual,
+configuracion thicc.json, mallas y buffers no se alteran.
+La prueba de nombre es intencionalmente conservadora; los componentes sin nombres
+anatomicos permanecen bajo veto y requieren verificacion manual.
+El reporte diagnostico ahora refleja el criterio de 1.9C.
+VALIDACION: pruebas unitarias sinteticas y compilacion Python; no se han ejecutado
+los cinco mods reales. El cambio automatico debe revisarse antes de distribuirlo
+como motor de produccion.

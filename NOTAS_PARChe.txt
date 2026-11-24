@@ -1,0 +1,10 @@
+Parche: comparación de conectividad soldada vs índices (22/11/2026)
+
+Archivos modificados: thicc_edit.py, wwmi_role_evidence.py
+
+- Analizar imprime conectividad por índices y por posiciones coincidentes para candidatos a piel, piel manual y anatomía manual.
+- Muestra shadow_auto y shadow_veto: resultado hipotético de aplicar el mismo criterio a conectividad soldada.
+- Conserva la clasificación automática original y el veto original para evitar cambios inesperados en Aplicar.
+- No cambia thicc.json, máscaras anatómicas, vértices ni buffers.
+- El método de welding usa tolerancia relativa mínima (1e-7 de la extensión local) y puede diferir de otros diagnósticos que usan tolerancias distintas.
+- No se ha probado la deformación de los cinco mods; comparar registros antes de activar cualquier cambio de roles.

@@ -1,0 +1,40 @@
+
+M00
+Component 3 - Línea 405 | +85.0 | skin | {'surface': 40.0, 'stickman': 25.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 0.0, 'topology': -3.0, 'vertices': 1.0}
+
+M01
+Component 3 Body No Nipples | +90.0 | skin | {'surface': 40.0, 'stickman': 25.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 5.0, 'topology': -3.0, 'vertices': 1.0}
+Component 3 Body Normal | +90.0 | skin | {'surface': 40.0, 'stickman': 25.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 5.0, 'topology': -3.0, 'vertices': 1.0}
+Component 3 Open Finger Glove Left | -33.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Open Finger Glove Long Left | -33.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Open Finger Glove Long Right | -33.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Open Finger Glove Right | -33.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Original Gloves | -42.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 3.0, 'shape': 0.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Original Boots | +12.0 | unresolved | {'surface': 10.0, 'stickman': 0.0, 'welded': 3.0, 'shape': 4.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Original Boots Open Toes | -38.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 3.0, 'shape': 4.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Stocking Left | -28.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 1.0}
+Component 3 Stocking Left Open Toe | -29.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+Component 3 Stocking Right | -28.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 1.0}
+Component 3 Stocking Right Open Toe | -29.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 0.0, 'naming': -5.0, 'topology': 0.0, 'vertices': 0.0}
+
+M02
+Component 3身体 | +26.0 | ambiguous | {'surface': 10.0, 'stickman': 0.0, 'welded': 9.0, 'shape': 4.0, 'height': 0.0, 'naming': 5.0, 'topology': -3.0, 'vertices': 1.0}
+Component 3身体裸.002 | +55.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': 5.0, 'topology': -3.0, 'vertices': 1.0}
+Component 7 | -46.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': -6.0, 'shape': -4.0, 'height': 6.0, 'naming': 0.0, 'topology': -3.0, 'vertices': 1.0}
+Component 7腿 | +63.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 1.0}
+
+M03
+Component 3 | +53.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 1.0}
+Component 4 | -46.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': -6.0, 'shape': -4.0, 'height': 6.0, 'naming': 0.0, 'topology': -3.0, 'vertices': 1.0}
+Component 4 Acc | -40.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': -6.0, 'shape': 0.0, 'height': 6.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 0.0}
+Component 4 Leg | +57.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 0.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 1.0}
+Component 4 TH | +54.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 9.0, 'shape': 4.0, 'height': 0.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 1.0}
+Component 4 LowerBody | +62.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 4.0, 'height': 0.0, 'naming': 5.0, 'topology': 0.0, 'vertices': 1.0}
+
+M04
+Component 3 body | +51.0 | skin | {'surface': 10.0, 'stickman': 25.0, 'welded': 3.0, 'shape': 4.0, 'height': 6.0, 'naming': 5.0, 'topology': -3.0, 'vertices': 1.0}
+
+M05
+Component 3 talon | +48.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 3.0, 'shape': 4.0, 'height': 0.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 1.0}
+Component 3 body | +58.0 | skin | {'surface': 40.0, 'stickman': 0.0, 'welded': 12.0, 'shape': 0.0, 'height': 0.0, 'naming': 5.0, 'topology': 0.0, 'vertices': 1.0}
+Component 3 | -49.0 | garment | {'surface': -40.0, 'stickman': 0.0, 'welded': -6.0, 'shape': -4.0, 'height': 0.0, 'naming': 0.0, 'topology': 0.0, 'vertices': 1.0}

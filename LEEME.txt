@@ -1,0 +1,16 @@
+THICC TOOL - REGULARIZACION DE PERFIL V2 (EXPERIMENTAL)
+
+Reemplaza los archivos thicc_edit.py, thicc_tool_gui.pyw y final_regularization.py
+por los de este ZIP. Haz una copia de seguridad antes.
+
+Cambio: el suavizado Taubin local del modulo final se sustituye por un ajuste
+espacial de desplazamientos a gran escala (altura y angulo alrededor de cada
+lado del cuerpo), con control de inversiones nuevas.
+
+No altera los otros campos de deformacion. La interfaz y parametros se mantienen.
+Prueba con Strength=1.00 y Noise tolerance=0.00 para evaluar el efecto maximo.
+
+LIMITACION: si la malla tiene inversiones previas, el control de seguridad
+puede reducir mucho el efecto final. Revisa el mensaje 'fallback scale' del log.
+El codigo se ensayo con buffers reales de 81632 vertices disponibles, pero no
+se ha verificado que sean exactamente los del ultimo test del juego.

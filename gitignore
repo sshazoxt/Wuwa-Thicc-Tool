@@ -1,0 +1,29 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+.venv/
+.venv.backup-*/
+venv/
+
+# Local settings and caches
+thicc_tool_settings.json
+thicc_environment_cache.json
+thicc.json
+thicc_detection_cache.json
+thicc_analysis_cache.json
+thicc_shape_cache.json
+.thicc_surface_cache.json
+logs/
+*.log
+
+# Local mod data and backups
+*.buf
+*.buf.orig
+*.wardrobe.bak
+*.dds
+
+# Personal / editor files
+.env
+.vscode/
+.idea/
+Thumbs.db

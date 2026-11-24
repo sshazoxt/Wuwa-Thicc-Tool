@@ -1,0 +1,2 @@
+Thicc Tool 006 — inicializacion grafica previa a mostrar la ventana.
+Warm-up sin temporizadores, en el hilo Qt. Jerarquia preparada con WA_DontShowOnScreen; despues se revela la ventana. Se conserva el reintento si el visor falla. No se cambia deteccion, cache ni deformacion. Prueba grafica real en Windows pendiente.
