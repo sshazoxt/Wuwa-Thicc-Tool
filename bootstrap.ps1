@@ -1,4 +1,4 @@
-param([ValidateSet('Launch','Check','Repair','Change','Rebuild','Info','Clear')][string]$Mode='Launch')
+﻿param([ValidateSet('Launch','Check','Repair','Change','Rebuild','Info','Clear')][string]$Mode='Launch')
 $ErrorActionPreference='Stop'
 $Root=$PSScriptRoot
 Set-Location -LiteralPath $Root
@@ -126,6 +126,13 @@ function ValidateEnvironment {
     $lines=& $Py $check
     if ($LASTEXITCODE -ne 0) { throw 'Python import validation failed.' }
     $result=($lines | Select-Object -Last 1) | ConvertFrom-Json
+    foreach ($line in (Get-Content -LiteralPath $Req)) {
+        if ($line -match '^\s*([A-Za-z0-9_.-]+)==([^\s#]+)\s*$') {
+            $name=$Matches[1]; $expected=$Matches[2]
+            $entry=$result.packages.PSObject.Properties[$name]
+            if (!$entry -or $entry.Value -ne $expected) { throw "Required package version not installed: $name==$expected" }
+        } elseif ($line.Trim() -and !$line.Trim().StartsWith('#')) { throw 'Requirements format changed; run dependency installation.' }
+    }
     foreach ($p in $result.packages.PSObject.Properties) { Log "[OK] $($p.Name) $($p.Value)" }
     return $result
 }
@@ -170,7 +177,7 @@ try {
     if (!$base) { throw 'No compatible Python selected.' }
     Log "[SELECTED] Python $($base.version) x64 - $($base.path)"
     $existing=Probe $Py
-    $rebuild=($Mode -eq 'Rebuild' -or $Mode -eq 'Change' -or ($old -and $old.root -ne $Root) -or !$existing -or ($existing.base -ne $base.path))
+    $rebuild=($Mode -eq 'Rebuild' -or $Mode -eq 'Change' -or !$existing -or !(Test-Path -LiteralPath $Pyw -PathType Leaf) -or ($existing.base -ne $base.path))
     if ($rebuild -and (Test-Path -LiteralPath $Venv)) {
         if (!(Ask 'The existing .venv must be rebuilt. It will be renamed to a backup directory, not deleted. Continue?')) { throw 'Environment rebuild cancelled.' }
         $backup=Join-Path $Root ('.venv.backup-'+[guid]::NewGuid().ToString('N').Substring(0,8))
@@ -179,11 +186,20 @@ try {
     }
     if ($rebuild -or !(Test-Path -LiteralPath $Py)) { Log '[SETUP] Creating isolated Python environment...'; RunPython $base.path @('-m','venv',$Venv) }
     Remove-Item -LiteralPath $Cache -Force -ErrorAction SilentlyContinue
-    Log '[CHECK] Checking/installing pinned dependencies (only binary wheels)...'
-    $argsInstall=@('-m','pip','install','--only-binary=:all:','-r',$Req)
-    if ($Mode -eq 'Repair') { $argsInstall+= '--force-reinstall' }
-    RunPython $Py $argsInstall
-    $verified=ValidateEnvironment
+    $verified=$null
+    if (!$rebuild -and $Mode -ne 'Repair') {
+        if ($old -and $old.root -ne $Root) { Log '[MOVE] Tool folder relocated. Checking existing environment without downloading packages.' }
+        else { Log '[CHECK] Validating existing environment before installing packages.' }
+        try { $verified=ValidateEnvironment } catch { Log ('[CHECK] Existing environment needs attention: '+$_.Exception.Message) }
+        if ($verified) { Log '[REUSE] Existing environment is valid. No packages downloaded.' }
+    }
+    if (!$verified) {
+        Log '[CHECK] Checking/installing pinned dependencies (only binary wheels)...'
+        $argsInstall=@('-m','pip','install','--only-binary=:all:','-r',$Req)
+        if ($Mode -eq 'Repair') { $argsInstall+= '--force-reinstall' }
+        RunPython $Py $argsInstall
+        $verified=ValidateEnvironment
+    }
     $data=[ordered]@{schema=1;status='ready';root=$Root;setup_hash=(SetupHash);requirements_hash=(Hash $Req);base_python=$base.path;python_version=$verified.python;base_fingerprint=(Finger $base.path);python_fingerprint=(Finger $Py);pythonw_fingerprint=(Finger $Pyw);venv_config_hash=(Hash (Join-Path $Venv 'pyvenv.cfg'));packages=$verified.packages;module_files=$verified.module_files;validated_utc=[DateTime]::UtcNow.ToString('o')}
     SaveCache $data
     Log '[OK] Environment validated and cached.'
