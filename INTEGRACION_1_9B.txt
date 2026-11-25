@@ -1,9 +1,0 @@
-Thicc Tool 3.2.6 + fase 1.9B (diagnóstico interno)
-
-Instalación: hacer copia de seguridad de la carpeta actual y sustituirla por el contenido de este paquete.
-Uso: abrir thicc_tool_gui.pyw como siempre, seleccionar mod y pulsar Analizar.
-No ejecutar scripts extra. No cambia el motor ni las funciones de axilas.
-El análisis estructural se activa automáticamente en el diagnóstico normal.
-Sus conclusiones no cambian roles, visibilidad ni máscaras: las variantes no están plenamente validadas.
-El resultado resumido queda en wwmi_structure dentro del objeto de diagnóstico y en el log.
-No se requiere aplicar el parche separado entregado anteriormente.
