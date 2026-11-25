@@ -1,4 +1,4 @@
-param([switch]$Maintenance)
+﻿param([switch]$Maintenance)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -13,7 +13,7 @@ $script:finished=$false
 $script:tail=''
 $script:logSaved=$false
 $form=New-Object Windows.Forms.Form
-$form.Text='Thicc Tool 007 | Launcher'
+$form.Text='Thicc Tool 007 | Launcher 1.2'
 $form.StartPosition='CenterScreen'
 $form.FormBorderStyle='FixedSingle'
 $form.MaximizeBox=$false
@@ -48,7 +48,7 @@ $open=New-Object Windows.Forms.Button; $open.Text='Open log'; $open.SetBounds(($
 $close=New-Object Windows.Forms.Button; $close.Text='Close'; $close.SetBounds(($width-115),($height+101),103,28); $close.Enabled=$false; $form.Controls.Add($close)
 $close.Add_Click({ $form.Close() })
 $open.Add_Click({ if ($script:logFile -and (Test-Path -LiteralPath $script:logFile)) { Start-Process notepad.exe -ArgumentList ('"'+$script:logFile+'"') } })
-$form.Add_FormClosing({ param($sender,$e) if ($script:worker -and !$script:worker.HasExited) { $e.Cancel=$true; $status.Text='Setup is still running; finish or cancel the current installer dialog.' } })
+$form.Add_FormClosing({ param($sender,$e) if (!$script:finished -and $script:worker -and !$script:worker.HasExited) { $e.Cancel=$true; $status.Text='Setup is still running; finish or cancel the current installer dialog.' } })
 function ChooseMode {
     $d=New-Object Windows.Forms.Form; $d.Text='Thicc Tool | Environment maintenance'; $d.StartPosition='CenterParent'; $d.ClientSize=New-Object Drawing.Size(440,295); $d.FormBorderStyle='FixedDialog'; $d.MaximizeBox=$false; $d.MinimizeBox=$false
     $label=New-Object Windows.Forms.Label; $label.Text='Choose an operation:'; $label.SetBounds(12,10,416,24); $d.Controls.Add($label)
@@ -81,16 +81,46 @@ $timer=New-Object Windows.Forms.Timer; $timer.Interval=150
 $timer.Add_Tick({
     try {
         $all=UpdateLog
-        if ($script:worker -and $script:worker.HasExited) {
+        # READY is emitted only after the application's unique startup signal.
+        # Do not depend on the bootstrap process exit code for a normal launch.
+        $readyConfirmed=($script:mode -eq 'Launch' -and $all -match '(?m)^\s*\[READY\] Thicc Tool started\. 3D engine: [^\r\n]+')
+        if ($readyConfirmed) {
             $timer.Stop(); $script:finished=$true
+            $status.ForeColor=[Drawing.ColorTranslator]::FromHtml('#91d3ac')
+            $status.Text='Ready - Thicc Tool is open'
+            try {
+                $all += "`r`n[LAUNCHER] READY received; closing launcher.`r`n"
+                [IO.File]::WriteAllText($script:logFile,$all,[Text.UTF8Encoding]::new($false))
+                # Keep raw logs if the worker is still finishing its cleanup.
+                $script:logSaved=($script:worker -and $script:worker.HasExited)
+            } catch { $script:logSaved=$false }
+            $form.Close()
+            return
+        }
+        if ($script:worker -and $script:worker.HasExited) {
+            $script:worker.WaitForExit()
+            $all=UpdateLog
+            # Recheck final output to avoid a race between the last write and exit.
+            if ($script:mode -eq 'Launch' -and $all -match '(?m)^\s*\[READY\] Thicc Tool started\. 3D engine: [^\r\n]+') { return }
+            $timer.Stop(); $script:finished=$true
+            $exitCode=$null
+            try { $exitCode=$script:worker.ExitCode } catch { }
+            $all += "`r`n[LAUNCHER] Bootstrap exit code: $exitCode; READY not received.`r`n"
             [IO.File]::WriteAllText($script:logFile,$all,[Text.UTF8Encoding]::new($false)); $script:logSaved=$true
             $open.Enabled=$true; $close.Enabled=$true; $bar.Style='Blocks'; $bar.MarqueeAnimationSpeed=0
-            if ($script:worker.ExitCode -eq 0) {
+            if ($script:mode -ne 'Launch' -and $null -ne $exitCode -and $exitCode -eq 0) {
                 $bar.Value=100; $status.ForeColor=[Drawing.ColorTranslator]::FromHtml('#91d3ac')
-                if ($script:mode -eq 'Launch') { $status.Text='Ready — Thicc Tool is open'; $form.Close() } else { $status.Text='Maintenance finished. Open log for details.' }
-            } else { $status.ForeColor=[Drawing.ColorTranslator]::FromHtml('#f0a4a4'); $status.Text='Setup or startup failed — see log.' }
+                $status.Text='Maintenance finished. Open log for details.'
+            } else {
+                $status.ForeColor=[Drawing.ColorTranslator]::FromHtml('#f0a4a4'); $status.Text='Setup or startup failed - see log.'
+            }
         }
-    } catch { $timer.Stop(); $status.Text='Launcher error: '+$_.Exception.Message; $close.Enabled=$true; $open.Enabled=($script:logFile -and (Test-Path -LiteralPath $script:logFile)) }
+    } catch {
+        $timer.Stop(); $script:finished=$true
+        $status.ForeColor=[Drawing.ColorTranslator]::FromHtml('#f0a4a4')
+        $status.Text='Launcher error: '+$_.Exception.Message
+        $close.Enabled=$true; $open.Enabled=($script:logFile -and (Test-Path -LiteralPath $script:logFile))
+    }
 })
 $form.Add_Shown({
     try {
@@ -101,6 +131,8 @@ $form.Add_Shown({
         $ps=Join-Path $PSHOME 'powershell.exe'; $bootstrap=Join-Path $root 'bootstrap.ps1'
         $argsLine='-NoProfile -ExecutionPolicy Bypass -STA -File "'+$bootstrap+'" -Mode '+$script:mode
         $script:worker=Start-Process -FilePath $ps -ArgumentList $argsLine -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $script:outFile -RedirectStandardError $script:errFile -PassThru
+        # Keep the process handle open so ExitCode remains available after exit.
+        try { $null=$script:worker.Handle } catch { }
         $timer.Start()
     } catch { $status.Text='Launcher error: '+$_.Exception.Message; $status.ForeColor=[Drawing.ColorTranslator]::FromHtml('#f0a4a4'); $close.Enabled=$true; $bar.Style='Blocks' }
 })
