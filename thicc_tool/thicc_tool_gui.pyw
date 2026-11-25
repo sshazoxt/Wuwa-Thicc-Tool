@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt,QTimer,QUrl
 from PySide6.QtGui import QDesktopServices,QColor,QTextCursor
 from PySide6.QtWidgets import *
 HERE=os.path.dirname(os.path.abspath(__file__))
+from anatomical_reconstruction import FULL_BODY
 sys.path.insert(0,HERE)
 class FocusWheelCombo(QComboBox):
     def wheelEvent(self, event):
@@ -96,8 +97,8 @@ Keep backups of your mods."""
 
 class App(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.5 · Launcher'); self.resize(1500,900); self.setMinimumSize(1000,650)
-        self.busy=False; self.job=None; self.analysis=None; self.analyzed_mod=None; self.anatomy=set(); self.auto_lm={}; self.pending_mod=None; self.plot=None; self._populate_viewer=None; self._closing=False; self.library=[]; self.batch=None; self.library_last_dir=""
+        super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.6 · ARF diagnostic'); self.resize(1500,900); self.setMinimumSize(1000,650)
+        self.preview_positions=None; self.busy=False; self.job=None; self.analysis=None; self.analyzed_mod=None; self.anatomy=set(); self.auto_lm={}; self.pending_mod=None; self.plot=None; self._populate_viewer=None; self._closing=False; self.library=[]; self.batch=None; self.library_last_dir=""
         self._build(); self._load_settings()
     def _build(self):
         root=QWidget(); self.setCentralWidget(root); self.main=root; l=QVBoxLayout(root); l.setContentsMargins(16,12,16,12); l.setSpacing(10)
@@ -119,7 +120,7 @@ class App(QMainWindow):
         button(row,'Show / hide',self.toggle_visibility)
         row=QHBoxLayout(); ll.addLayout(row); button(row,'+ Anatomy',lambda:self.set_anatomy(True)); button(row,'− Anatomy',lambda:self.set_anatomy(False)); button(row,'Save and analyze',self.save_anatomy); button(row,'Reset automatic',self.reset_auto)
         center=QWidget(); center.setObjectName("workspacePanel"); cl=QVBoxLayout(center); cl.setContentsMargins(12,12,12,12); split.addWidget(center); viewer_title=QLabel("3D Viewer · Selected parts"); viewer_title.setObjectName("sectionHeading"); cl.addWidget(viewer_title)
-        row=QHBoxLayout(); cl.addLayout(row); self.viewer_mode=combo(['Current','Original','Comparison','Displacement']); row.addWidget(self.viewer_mode.w); self.wire=check('Wireframe'); row.addWidget(self.wire.w); button(row,'View 3D geometry',self.view3d).setObjectName('primary')
+        row=QHBoxLayout(); cl.addLayout(row); self.viewer_mode=combo(['Current','Original','Preview','Comparison','Displacement']); row.addWidget(self.viewer_mode.w); self.wire=check('Wireframe'); row.addWidget(self.wire.w); button(row,'View 3D geometry',self.view3d).setObjectName('primary')
         self.viewer_status=QLabel("3D engine: starting…"); self.viewer_status.setWordWrap(True); cl.addWidget(self.viewer_status)
         self.viewhost=QFrame(); self.viewhost.setObjectName("viewerHost"); self.viewlayout=QVBoxLayout(self.viewhost); self.viewlayout.setContentsMargins(0,0,0,0); self.placeholder=QLabel('Analyze a mod and select one or more parts.'); self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter); self.placeholder.setWordWrap(True); self.viewlayout.addWidget(self.placeholder,1); cl.addWidget(self.viewhost,1)
         row=QHBoxLayout(); cl.addLayout(row); button(row,'Front',lambda:self.camera('xz')); button(row,'Side',lambda:self.camera('yz')); button(row,'Perspective',lambda:self.camera('iso')); button(row,'Fit',lambda:self.camera('fit'))
@@ -238,6 +239,8 @@ class App(QMainWindow):
         bad='#e8a5a5' if dark else '#a32d2d'
         effective=ROLE_KEYS.get(self.tree.set(row,'role'),self.tree.set(row,'role'))
         parts=[f'<b>{escape(name)}</b>', f'Auto: {escape(str(ev.get("role")))} &nbsp; | &nbsp; Effective: {escape(effective)}']
+        if name in self.analysis.get('arf_recovered', []):
+            parts.append('ARF: lower-body recovery (original weighted score unchanged).')
         score=ev.get('score')
         if score is not None:
             parts.append(f'<b>Score: {score:+.1f} / 100</b> &nbsp; | &nbsp; Coverage: {100*ev.get("coverage",0):.0f}%')
@@ -325,13 +328,29 @@ class App(QMainWindow):
             self.say('\n[Viewer] Startup warm-up failed:\n'+traceback.format_exc())
         finally:self.busy=False
 
+    def show_full_body(self):
+        if not self.analysis or not self.tree.rowCount():return
+        if self.tree.item(0,'text')!=FULL_BODY:return
+        self.tree.clearSelection(); self.tree.selectRow(0); self.view3d()
+
     def view3d(self):
         if self.busy:return
         if not self.analysis or self.analyzed_mod!=os.path.abspath(self.mod.get()): return messagebox.showinfo('Viewer','Analyze the mod first.')
         names=[self.tree.item(i,'text') for i in self.tree.selection()]
+        if FULL_BODY in names:
+            from anatomical_reconstruction import reconstruct
+            try:
+                meta={}; te.parse_draws(self.analysis['ini'],metadata=meta)
+                reference=reconstruct(self.analysis['ini'],meta)
+                names=reference['active']
+                self.say('[Full Body] %d resolved default draws; %d unknown.\n'%(len(names),len(reference['uncertain'])))
+            except Exception as e:
+                self.say('[Full Body] '+str(e)+'\n'); return
         if not names:return messagebox.showinfo('Viewer','Select one or more parts.')
         self.busy=True
-        mod=self.analyzed_mod; ini=self.analysis['ini']; wire=self.wire.get(); mode=self.viewer_mode.get()
+        mod=self.analyzed_mod; ini=self.analysis['ini']; wire=self.wire.get(); mode=self.viewer_mode.get(); preview=self.preview_positions if mode in ('Preview','Comparison','Displacement') else None
+        if mode=='Preview' and preview is None:
+            self.busy=False; return messagebox.showinfo('Viewer','Run Preview first.')
         self.viewer_status.setText('3D engine: loading geometry…')
         self.say('\n[Viewer] Loading geometry…\n')
         started=time.monotonic()
@@ -339,7 +358,7 @@ class App(QMainWindow):
             try:
                 # Retry initialization only if startup warm-up failed.
                 self.initialize_viewer()
-                self._populate_viewer(self.plot,mod,ini,names,wire=wire,mode=mode)
+                self._populate_viewer(self.plot,mod,ini,names,wire=wire,mode=mode,preview_positions=preview)
                 self.plot.render()
                 elapsed=time.monotonic()-started
                 self.viewer_status.setText(f'3D engine: ready | {elapsed:.2f} s')
@@ -356,8 +375,11 @@ class App(QMainWindow):
         m=self._check_mod()
         if not m:return
         if save:
-            if not self.analysis or self.analyzed_mod!=os.path.abspath(m) or not self.analysis.get('ready'):return messagebox.showwarning('Thicc Tool','Save anatomy and analyze again before continuing.')
-            try:self.write_cfg(m)
+            if not self.analysis or self.analyzed_mod!=os.path.abspath(m):return messagebox.showwarning('Thicc Tool','Analyze the mod before continuing.')
+            if not self.analysis.get('ready'):return messagebox.showwarning('Thicc Tool','Analysis incomplete or Anatomy changed. Review and save/analyze.\n\n'+'\n'.join(self.analysis.get('warnings',[])))
+            try:
+                candidate=self.write_cfg(m,dry=True)
+                if candidate != getattr(self,"analysis_ui_baseline",None): self.write_cfg(m)
             except ValueError as e:return messagebox.showerror('Thicc Tool',str(e))
         self.launch(m,mode,done)
     def launch(self,m,mode,done,force=False):
@@ -391,9 +413,18 @@ class App(QMainWindow):
             if j['proc'].returncode:raise RuntimeError(j['tail'])
             with open(j['result'],'rb') as f:res=pickle.load(f)
             if j['done']:
-                j['done'](res)
-                if j['mode']=='diagnose': self.analysis_completed(res,j['mod'])
-            else:self.status.setText({'dry':'Preview ready. Check the log.','write':'Applied. Press F10 in game.','restore':'Original restored.'}[j['mode']])
+                accepted=j['done'](res)
+                if j['mode']=='diagnose' and accepted is not False: self.analysis_completed(res,j['mod'])
+            else:
+                self.status.setText({'dry':'Preview ready. Check the log.','write':'Applied. Press F10 in game.','restore':'Original restored.'}[j['mode']])
+                if j['mode']=='dry':
+                    self.preview_positions=res.get('preview_positions') if isinstance(res,dict) else None
+                    if self.preview_positions is None:
+                        self.status.setText('Preview unavailable. Check the log.'); return
+                else: self.preview_positions=None
+                if self.analysis and self.analyzed_mod==os.path.abspath(j['mod']):
+                    self.viewer_mode.set('Current' if j['mode']=='restore' else 'Comparison')
+                    self.show_full_body()
         except Exception:
             self.say(traceback.format_exc()); self.status.setText('Error: check the log.');
             if self.batch is None: messagebox.showerror('Thicc Tool','Process error. Check the log.')
@@ -492,7 +523,7 @@ class App(QMainWindow):
         finally:self.analysis=old
     def manual(self): self.show_text('Manual',MANUAL)
     def about(self):
-        info='Thicc Tool 007 / engine '+te.VERSION+'\nPython: '+sys.version+'\nExecutable: '+sys.executable
+        info='Thicc Tool 008 ARF test / engine '+te.VERSION+'\nPython: '+sys.version+'\nExecutable: '+sys.executable
         for name in ('numpy','scipy','PySide6','pyvista','pyvistaqt','vtk'):
             try:info+='\n'+name+': '+str(getattr(importlib.import_module(name),'__version__','Available'))
             except Exception as e:info+='\n'+name+': '+str(e)
@@ -590,7 +621,7 @@ class App(QMainWindow):
         cfg["surface_rounding"] = bool(self.rounding.get())
         if self.analysis and self.analyzed_mod == os.path.abspath(m):
             roles = {self.tree.item(i, "text"): ROLE_KEYS[self.tree.set(i, "role")]
-                     for i in self.tree.get_children()}
+                     for i in self.tree.get_children() if self.tree.item(i,"text")!=FULL_BODY}
             cfg["anatomy"] = [n for n in roles if n in self.anatomy]
             cfg["skin"] = [n for n, r in roles.items() if r == "skin"]
             cfg["freeze"] = [n for n, r in roles.items() if r == "frozen"]
@@ -616,7 +647,7 @@ class App(QMainWindow):
         m = self._check_mod()
         if not m:
             return
-        if save_current and self.analysis and self.analyzed_mod == os.path.abspath(m):
+        if not force and save_current and self.analysis and self.analyzed_mod == os.path.abspath(m):
             try:
                 candidate=self.write_cfg(m,dry=True)
                 if candidate != getattr(self,"analysis_ui_baseline",None): self.write_cfg(m)
@@ -625,12 +656,34 @@ class App(QMainWindow):
         self.pending_mod = None
         def done(res):
             if not res:
-                return
+                return False
+            if force:
+                from detection_cache import accept_proposal
+                saved=self.read_cfg(m)
+                old_roles={n:r for k,r in (('skin','skin'),('freeze','frozen'),('move','garment')) for n in saved.get(k,[])}
+                old_anatomy=set(saved.get('anatomy',[])); new_anatomy=set(res['cfg']['anatomy'])
+                changes=[]
+                for n,role,*_ in res['parts']:
+                    old=old_roles.get(n,'automatic')
+                    if old!=role or (n in old_anatomy)!=(n in new_anatomy):
+                        changes.append((n,old,role,'Yes' if n in old_anatomy else 'No','Yes' if n in new_anatomy else 'No','ARF' if n in res.get('arf_recovered',[]) else 'Weighted / automatic'))
+                current_names={row[0] for row in res['parts']}
+                for n in sorted((set(old_roles)|old_anatomy)-current_names):
+                    changes.append((n,old_roles.get(n,'automatic'),'Removed','Yes' if n in old_anatomy else 'No','No','Missing draw'))
+                if not res.get('ready'):
+                    self.say('\n[Force analyze] Proposed anatomy is incomplete: '+ '; '.join(res.get('warnings',[]))+'\n')
+                if os.path.isfile(self.cfg_path(m)) and changes and not self.confirm_detection_changes(changes,res):
+                    self.say('\n[Force analyze] Saved configuration retained.\n'); self.status.setText('Automatic proposal rejected — saved configuration unchanged.'); return False
+                accept_proposal(m,res,te.find_ini)
+                self.say('\n[Force analyze] Accepted configuration saved; analysis reused.\n')
             if self.plot is not None:self.plot.clear(); self.plot.render()
             self.analysis = res
+            self.preview_positions=None
             self.analyzed_mod = os.path.abspath(m)
             self.anatomy = set(res["cfg"].get("anatomy", []))
             self.tree.delete(*self.tree.get_children())
+            self.tree.insert('', 'end', text=FULL_BODY, values=('Default INI assembly','Virtual','View only','—','—','—','—','—'),tags=('frozen',))
+            self.tree.item(0,0).setToolTip('Read-only assembled default configuration; not saved as a real part.')
             for n, role, z0, z1, nv, reg in res["parts"]:
                 self.tree.insert("", "end", text=n,
                                  values=(res["cfg"].get("labels", {}).get(n, ""), "Visible" if res["draw_meta"][n]["visible"] else "Hidden", ROLES[role], "Yes" if n in self.anatomy else "No", reg or "-", "%.1f" % z0, "%.1f" % z1, nv),
@@ -675,7 +728,22 @@ class App(QMainWindow):
             self.warn.config(foreground="#18733c" if res.get("ready") else "#b00000", text=status + "\n" + "\n".join("Warning: " + w for w in res["warnings"]))
             self.status.config(text="Analysis ready." if res.get("ready") else "Analysis incomplete: review parts and analyze again.")
             self.analysis_ui_baseline=self.write_cfg(m,dry=True)
+            if self.batch is None:
+                self.viewer_mode.set("Current"); QTimer.singleShot(0,self.show_full_body)
+            return True
         self.start_analysis(m, done, force=force)
+
+    def confirm_detection_changes(self,changes,res):
+        dlg=QDialog(self); dlg.setWindowTitle('Automatic detection changes'); layout=QVBoxLayout(dlg)
+        label=QLabel('Force analyze found %d changed parts. Replace saved classification and Anatomy?' % len(changes)); label.setWordWrap(True); layout.addWidget(label)
+        if not res.get('ready'):
+            warning=QLabel('New analysis is incomplete: '+ '; '.join(res.get('warnings',[]))); warning.setWordWrap(True); layout.addWidget(warning)
+        table=QTableWidget(len(changes),6); table.setHorizontalHeaderLabels(['Part','Saved role','Detected role','Saved anatomy','Detected anatomy','Source']); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        for i,row in enumerate(changes):
+            for j,value in enumerate(row): table.setItem(i,j,QTableWidgetItem(str(value)))
+        table.resizeColumnsToContents(); table.horizontalHeader().setStretchLastSection(True); layout.addWidget(table)
+        buttons=QDialogButtonBox(); accept=buttons.addButton('Accept changes',QDialogButtonBox.ButtonRole.AcceptRole); reject=buttons.addButton('Keep saved',QDialogButtonBox.ButtonRole.RejectRole); reject.setDefault(True); buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject); layout.addWidget(buttons); dlg.resize(880,420)
+        return dlg.exec()==QDialog.DialogCode.Accepted
 
     def toggle_visibility(self):
         if self.busy or not self.analysis or not self.analyzed_mod:
@@ -683,7 +751,7 @@ class App(QMainWindow):
         if os.path.abspath(self.mod.get()) != self.analyzed_mod:
             messagebox.showwarning("Wardrobe", "Analyze this folder first.")
             return
-        rows = self.tree.selection()
+        rows = [i for i in self.tree.selection() if self.tree.item(i,"text")!=FULL_BODY]
         if not rows:
             messagebox.showinfo("Wardrobe", "Select one or more parts.")
             return
@@ -697,6 +765,7 @@ class App(QMainWindow):
         self.analysis['draw_meta'] = new
         for i in self.tree.get_children():
             n = self.tree.item(i, 'text')
+            if n==FULL_BODY:continue
             self.tree.set(i, 'visibility', 'Visible' if new[n]['visible'] else 'Hidden')
         self.say('Wardrobe: '+ ('shown' if visible else 'hidden') + ': '+ ', '.join(selected) + '\n')
         self.status.config(text='Visibility saved in INI. Press F10 in game.')
@@ -704,6 +773,7 @@ class App(QMainWindow):
     def edit_label(self, row, col):
         if self.busy or col != 1 or not self.analyzed_mod: return
         if self.analyzed_mod != os.path.abspath(self.mod.get()): return
+        if self.tree.item(row,"text")==FULL_BODY:return
         value, ok = QInputDialog.getText(self, "Label", "Custom name:", text=self.tree.set(row,"label"))
         if not ok: return
         cfg=self.read_cfg(self.analyzed_mod); labels=cfg.setdefault("labels",{}); name=self.tree.item(row,"text")
@@ -714,7 +784,7 @@ class App(QMainWindow):
 
     def set_role(self, role):
         if self.busy or self.analyzed_mod != os.path.abspath(self.mod.get()): return
-        sel = self.tree.selection()
+        sel = [i for i in self.tree.selection() if self.tree.item(i,"text")!=FULL_BODY]
         if not sel:
             messagebox.showinfo("Thicc Tool", "Select one or more parts in the table.")
             return
@@ -727,8 +797,10 @@ class App(QMainWindow):
     def set_anatomy(self, include):
         if self.busy or self.analyzed_mod != os.path.abspath(self.mod.get()):
             return
+        rows=[i for i in self.tree.selection() if self.tree.item(i,"text")!=FULL_BODY]
+        if not rows:return
         if self.analysis: self.analysis["ready"] = False
-        for i in self.tree.selection():
+        for i in rows:
             n = self.tree.item(i, "text")
             if include:
                 self.anatomy.add(n)

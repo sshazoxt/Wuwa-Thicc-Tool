@@ -1015,7 +1015,7 @@ def normalize_legacy_part_names(cfg, draws):
 
 
 # ================================================================ main
-def run(mod, mode, bounce=None):
+def run(mod, mode, bounce=None, automatic_proposal=False):
     M = os.path.join(mod, "Meshes")
     POS, VEC = os.path.join(M, "Position.buf"), os.path.join(M, "Vector.buf")
     if mode == "restore":
@@ -1027,6 +1027,8 @@ def run(mod, mode, bounce=None):
     cfg = json.loads(json.dumps(DEFAULT_CFG))
     if os.path.exists(cfg_path):
         cfg.update(json.load(open(cfg_path, encoding="utf-8")))
+    if automatic_proposal:
+        for k in ("skin", "freeze", "move", "anatomy"): cfg[k] = []
     if bounce is not None:
         cfg["bounce"] = bounce
     level = cfg.get("bounce", "normal")
@@ -1137,6 +1139,23 @@ def run(mod, mode, bounce=None):
     suggested = [n for n in DRAWS if automatic_evidence[n]['role'] == 'skin']
     explicit_skin = set(cfg.get('skin', []))
     explicit_roles = explicit_skin | set(cfg.get('freeze', [])) | set(cfg.get('move', []))
+    reference = dict(active=[], uncertain=[], notes=[])
+    recovered = []
+    try:
+        from anatomical_reconstruction import reconstruct, diagnose as arf_diagnose
+        reference = reconstruct(ini, draw_meta)
+        if mode == 'diagnose':
+            print('[Full Body] Default reference: %d active, %d unresolved draws' % (len(reference['active']), len(reference['uncertain'])))
+            for note in reference['notes']: print('[Full Body]', note)
+        effective_skin = [n for n in DRAWS if n in explicit_skin or (n not in explicit_roles and n in suggested)]
+        base_anatomy = [n for n in cfg.get('anatomy',[]) if n in DRAWS] or effective_skin + [n for n in DRAWS if COMP[n]==2]
+        candidates = arf_diagnose(P0, {n: tris(n) for n in DRAWS}, COMP, ini, draw_meta, automatic_evidence, M, load_bones, reference, blocked=explicit_roles | {n for n in DRAWS if FREEZE_RE.search(n)}, anatomy=base_anatomy, effective_skin=effective_skin) or []
+        recovered = [n for n in candidates if n not in explicit_roles and not FREEZE_RE.search(n)]
+        suggested.extend(recovered)
+        print('[ARF] Effective Skin recovery:', recovered)
+        if set(candidates)-set(recovered): print('[ARF] Protected by saved roles or Frozen rule:', sorted(set(candidates)-set(recovered)))
+    except Exception as exc:
+        print('[ARF] Recovery unavailable (original classification retained):', repr(exc))
     def role_for(n):
         if n in explicit_skin: return 'skin'
         if n in cfg.get('freeze', []): return 'frozen'
@@ -1168,7 +1187,7 @@ def run(mod, mode, bounce=None):
         return dict(parts=[(n, (roles or {}).get(n, role_for(n)), *info[n], (regions if regions is not None else partial_regions).get(n,'')) for n in DRAWS],
                     landmarks=landmarks or {}, natural=natural or {}, warnings=warnings, cfg=cfg, height=H,
                     stickman=rw is not None, skeleton_status=state, ready=ready, ini=ini, draw_meta=draw_meta,
-                    wwmi_structure=wwmi_structure_summary, role_evidence=automatic_evidence)
+                    wwmi_structure=wwmi_structure_summary, role_evidence=automatic_evidence, full_body=reference, arf_recovered=recovered)
     if unknown or not anatomy_names:
         msg = 'Unknown anatomical parts: '+', '.join(unknown) if unknown else 'No anatomical parts were identified. Select them and save the anatomy.'
         if mode == 'diagnose': return result([msg])
@@ -2019,8 +2038,8 @@ def run(mod, mode, bounce=None):
     print("vectors: %d re-framed   normal turn mean %.1f max %.1f deg   untouched bit-exact: %s"
           % (moved.sum(), tv[moved].mean() if moved.any() else 0., tv[moved].max() if moved.any() else 0., np.array_equal(vec[~moved], orig[~moved])))
     if mode != "write":
-        print("\n[DRY RUN] Nothing written. Re-run with --write to apply.")
-        return
+        print("\n[DRY RUN] Geometry buffers unchanged. Re-run with --write to apply.")
+        return {"preview_positions": new.astype(np.float32)}
     new.astype(np.float32).tofile(POS)
     print("Position.buf written")
     vec.tofile(VEC)

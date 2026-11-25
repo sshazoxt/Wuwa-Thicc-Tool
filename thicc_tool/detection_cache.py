@@ -163,13 +163,40 @@ def diagnose(mod,run,find_ini,force=False):
         print(old['console'],end=''); result['_cache']=dict(source='full_cache',seconds=time.perf_counter()-start,original_seconds=old.get('seconds',0)); return result
     print('[Cache] Full analysis MISS:', 'forced' if force else 'missing, changed or invalid',flush=True)
     tee=Tee(sys.stdout)
-    with contextlib.redirect_stdout(tee), contextlib.redirect_stderr(tee): result=run(str(mod),'diagnose')
+    with contextlib.redirect_stdout(tee), contextlib.redirect_stderr(tee): result=run(str(mod),'diagnose',automatic_proposal=True) if force else run(str(mod),'diagnose')
     seconds=time.perf_counter()-start
     if isinstance(result,dict):
-        if not CACHEABLE:
+        if force:
+            result['_proposal'] = dict(keys=keys, console=tee.buffer.getvalue(), seconds=seconds, cacheable=CACHEABLE and key()==keys)
+            print('[Cache] Automatic proposal: effective snapshot not replaced.')
+        elif not CACHEABLE:
             print('[Cache] Full snapshot not saved because detector errors were reported.')
         elif key()==keys:
             write(path,dict(keys=keys,result=result,console=tee.buffer.getvalue(),seconds=seconds,created_at=time.time(),detection_version=VERSION))
         else: print('[Cache] Inputs changed during analysis; full snapshot not saved.')
         result['_cache']=dict(source=LAST_SOURCE,seconds=seconds,original_seconds=seconds)
+    return result
+
+
+def accept_proposal(mod,result,find_ini):
+    """Commit only classification fields, after validating analyzed inputs."""
+    mod=Path(mod).resolve(); path=mod/'thicc.json'; proposal=result.get('_proposal')
+    if not proposal: raise ValueError('No automatic proposal to accept.')
+    old=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
+    keys=hashes(mod,find_ini(str(mod))); keys.update(config_hash=digest([('cfg',old)]),mod_path=str(mod))
+    if keys!=proposal['keys']: raise ValueError('Mod or configuration changed during analysis. Run Force analyze again.')
+    cfg=dict(old); roles={row[0]:row[1] for row in result['parts']}
+    for key,role in [('skin','skin'),('freeze','frozen'),('move','garment')]: cfg[key]=[n for n,r in roles.items() if r==role]
+    cfg['anatomy']=list(result['cfg']['anatomy'])
+    tmp=None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=mod,delete=False) as f:
+            tmp=f.name; json.dump(cfg,f,ensure_ascii=False,indent=2); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp,path); tmp=None
+    finally:
+        if tmp: os.unlink(tmp)
+    result['cfg'].update(cfg); result.pop('_proposal',None)
+    keys['config_hash']=digest([('cfg',cfg)])
+    if proposal['cacheable']:
+        write(mod/'thicc_analysis_cache.json',dict(keys=keys,result=result,console=proposal['console'],seconds=proposal['seconds'],created_at=time.time(),detection_version=VERSION))
     return result

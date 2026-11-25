@@ -2,10 +2,28 @@ import os, sys, re
 import numpy as np
 
 
-SKIN_RE = re.compile(r"身体|身體|body|skin|裸|nude|naked|素体", re.I)
+SKIN_RE = re.compile(
+    r"身体|身體|皮肤|皮膚|裸|素体|素體|下身|下半身|上半身|躯干|軀幹|"
+    r"大腿|小腿|腿|脚|腳|足部|手臂|前臂|上臂|手部|肩部|腹部|腰部|髋部|髖部|臀部|膝盖|膝蓋|脖子|颈部|頸部|"
+    r"하체|상체|몸통|피부|허벅지|종아리|무릎|골반|허리|엉덩이|어깨|복부|팔꿈치|"
+    r"(?:^|[\s._-])(?:몸|다리|팔|발|손)(?=$|[\s._\d-])|"
+    r"胴体|胴體|太もも|ふともも|ふくらはぎ|ウエスト|ヒップ|上腕|前腕|足首|手首|"
+    r"(?:^|[\s._-])(?:体|肌|脚|足|腕|手|肩|膝)(?=$|[\s._\d-])|"
+    r"body|skin|nude|naked|"
+    r"(?<![a-z])(?:torso|hips?|pelvis|waist|glutes?|gluteus|buttocks?|thighs?|legs?|calf|calves|knees?|feet|foot|arms?|forearms?|hands?|shoulders?|abdomen|ankles?|wrists?|neck)(?![a-z])|"
+    r"(?-i:(?<![A-Za-z])(?:Left|Right)?(?:Leg|Thigh|Calf|Foot|Arm|Hand|Hip|Waist|Glute|Torso|Shoulder|Knee)(?=[A-Z0-9_ .-]|$))",
+    re.I,
+)
 
-NOT_SKIN_RE = re.compile(r"strap|stocking|sock|glove|shoe|boot|bikini|leotard|cloth|dress|skirt|"
-                         r"shirt|top|suit|sweater|short|pant|衣|裙|袜|襪|鞋|手套|内裤|內褲|饰|飾", re.I)
+NOT_SKIN_RE = re.compile(
+    r"strap|stocking|sock|glove|shoe|boot|bikini|leotard|cloth|dress|skirt|"
+    r"shirt|top|suit|sweater|short|pant|衣|裙|袜|襪|鞋|手套|内裤|內褲|饰|飾|"
+    r"面纱|面紗|胸罩|锁链|鎖鏈|金圈|布条|布條|脖环|脖環|腿环|腿環|项链|項鏈|手镯|手鐲|乳坠|乳墜|乳贴|乳貼|创可贴|創可貼|拉环|拉環|刻度尺|"
+    r"장갑|양말|스타킹|신발|부츠|치마|바지|속옷|브래지어|목걸이|팔찌|귀걸이|액세서리|의상|"
+    r"靴下|ストッキング|タイツ|ブーツ|スカート|ズボン|下着|ブラジャー|手袋|ネックレス|ブレスレット|アクセサリー|ベルト|リボン|"
+    r"(?<![a-z])(?:accessor(?:y|ies)|jewel(?:ry|lery)|necklace|bracelets?|anklets?|chains?|rings?|belts?|ribbons?|veil|bras?|harness|corset|garters?|tights|leggings|armor|armour|bandages?|patches?)(?![a-z])",
+    re.I,
+)
 
 FREEZE_RE = re.compile(r"hair|face|head|\beyes?\b|\bears?\b|earring|mask|visor|blindfold|horn|\bhat\b|"
                        r"hood|tail|smile|"
