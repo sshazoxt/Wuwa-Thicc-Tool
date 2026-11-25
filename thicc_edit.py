@@ -156,7 +156,7 @@ class Sculpt:
             zc.pop(4)
             zr.pop(4)
         if not np.all(np.diff(zc) > 0):
-            raise ValueError("Referencias verticales no crecientes; no se puede deformar.")
+            raise ValueError("Vertical landmarks are not increasing; deformation cannot proceed.")
         self.zmap = pchip(zc, zr)
         self.cyc = L["cy"]
 
@@ -825,7 +825,7 @@ def parse_draws(ini, comps=None, metadata=None):
                 name = m.group(1).strip()
                 break
         if name is None:
-            name = "Component %s - Línea %d" % (comp, i + 1)
+            name = "Component %s - Line %d" % (comp, i + 1)
         base, n = name, 2
         while name in out:
             name = "%s (%d)" % (base, n)
@@ -848,12 +848,12 @@ def set_visibility(ini, expected, visible):
     for name, old in expected.items():
         now = current.get(name)
         if now != old:
-            raise ValueError('El INI cambió: vuelve a analizar antes de cambiar visibilidad.')
+            raise ValueError('The INI has changed: analyze again before changing visibility.')
         i = now['line'] - 1
         line = lines[i]
         match = re.match(rb'^([ \t]*)(;[ \t]*)?(drawindexed[ \t]*=)', line, re.I)
         if not match:
-            raise ValueError('No se encontró el drawindexed esperado.')
+            raise ValueError('The expected DrawIndexed entry was not found.')
         if visible and match.group(2):
             lines[i] = line[:match.start(2)] + line[match.end(2):]
         elif not visible and not match.group(2):
@@ -867,7 +867,7 @@ def set_visibility(ini, expected, visible):
         try:
             with os.fdopen(fd, 'wb') as f: f.write(updated)
             if open(ini, 'rb').read() != raw:
-                raise ValueError('El INI cambió durante la operación.')
+                raise ValueError('The INI changed during the operation.')
             os.replace(tmp, ini)
         finally:
             if os.path.exists(tmp): os.unlink(tmp)
@@ -932,8 +932,8 @@ def measure(P, skin, H, skin_tri):
         (P[skin, 2] < 0.7 * H)
     ]
 
-    print("\n--- DIAGNOSTICO DE COORDENADAS ---")
-    print("Vertices en franja Z:", len(z_band))
+    print("\n--- COORDINATE DIAGNOSTIC ---")
+    print("Vertices in Z band:", len(z_band))
 
     if len(z_band):
         xyz = P[z_band]
@@ -941,13 +941,13 @@ def measure(P, skin, H, skin_tri):
         for i, axis in enumerate(["X", "Y", "Z"]):
             values = xyz[:, i]
             print(
-                f"{axis}: rango {values.min():.3f} a {values.max():.3f} "
-                f"| minimo valor absoluto: {np.abs(values).min():.3f}"
+                f"{axis}: range {values.min():.3f} to {values.max():.3f} "
+                f"| minimum absolute value: {np.abs(values).min():.3f}"
             )
 
         nearest = z_band[np.argsort(np.abs(P[z_band, 0]))[:10]]
 
-        print("\n10 vertices mas cercanos al centro X:")
+        print("\n10 vertices closest to the X centerline:")
         for v in nearest:
             print(
                 f"X={P[v,0]:.3f} "
@@ -962,12 +962,12 @@ def measure(P, skin, H, skin_tri):
         skin_xyz = P[skin]
 
         raise ValueError(
-            "No se encontraron vertices de piel en la zona de la entrepierna.\n"
-            f"Vertices Skin: {len(skin)}\n"
-            f"Altura H: {H:.4f}\n"
-            f"Rango X: {skin_xyz[:, 0].min():.4f} a {skin_xyz[:, 0].max():.4f}\n"
-            f"Rango Z: {skin_xyz[:, 2].min():.4f} a {skin_xyz[:, 2].max():.4f}\n"
-            "Revisa la seleccion de partes Skin o la posicion del modelo."
+            "No skin vertices were found in the crotch region.\n"
+            f"Skin vertices: {len(skin)}\n"
+            f"Height H: {H:.4f}\n"
+            f"X range: {skin_xyz[:, 0].min():.4f} to {skin_xyz[:, 0].max():.4f}\n"
+            f"Z range: {skin_xyz[:, 2].min():.4f} to {skin_xyz[:, 2].max():.4f}\n"
+            "Check the Skin part selection or the model position."
         )
 
     L["crotch"] = float(P[down, 2].min() if len(down) else P[near, 2].min())
@@ -991,6 +991,29 @@ def measure(P, skin, H, skin_tri):
     return L
 
 
+def normalize_legacy_part_names(cfg, draws):
+    """Migrate only generated legacy part IDs; preserve real mod names and labels."""
+    def resolve(name):
+        if not isinstance(name, str) or name in draws:
+            return name
+        # Historical non-English spelling, encoded to keep source text English.
+        match = re.fullmatch(r"Component (\d+) - L\u00ednea (\d+)( \(\d+\))?", name)
+        if match:
+            candidate = "Component %s - Line %s%s" % (match[1], match[2], match[3] or "")
+            if candidate in draws:
+                return candidate
+        return name
+    for key in ("skin", "freeze", "move", "anatomy", "_auto_skin"):
+        if isinstance(cfg.get(key), list):
+            cfg[key] = [resolve(name) for name in cfg[key]]
+    if isinstance(cfg.get("labels"), dict):
+        labels = cfg["labels"]
+        cfg["labels"] = {resolve(name): value for name, value in labels.items()}
+        # If both names are present, the current ID takes precedence.
+        cfg["labels"].update({name: value for name, value in labels.items() if name in draws})
+    return cfg
+
+
 # ================================================================ main
 def run(mod, mode, bounce=None):
     M = os.path.join(mod, "Meshes")
@@ -1008,9 +1031,9 @@ def run(mod, mode, bounce=None):
         cfg["bounce"] = bounce
     level = cfg.get("bounce", "normal")
     if level not in BOUNCE_LEVELS:
-        raise ValueError("Nivel de bounce no valido: %s" % level)
+        raise ValueError("Invalid bounce level: %s" % level)
     if mode != "diagnose" and level != "normal":
-        raise ValueError("Bounce %s aun no disponible: falta validar la fisica dinamica de WWMI. Selecciona Normal. No se modificaron los buffers." % level)
+        raise ValueError("Bounce %s is not available yet: WWMI dynamic physics still needs validation. Select Normal. No buffers were modified." % level)
     for f in (POS, VEC):
         if mode != "diagnose" and not os.path.exists(f + ".orig"):
             shutil.copy2(f, f + ".orig")
@@ -1023,6 +1046,7 @@ def run(mod, mode, bounce=None):
     COMP = {}
     draw_meta = {}
     DRAWS = parse_draws(ini, COMP, draw_meta)
+    normalize_legacy_part_names(cfg, DRAWS)
     # Phase 1.9B: internal, read-only structural evidence. The user does not
     # launch a second script. Never change Wardrobe roles or morph masks here.
     wwmi_structure_summary = None
@@ -1068,14 +1092,14 @@ def run(mod, mode, bounce=None):
         base_vertex = int(fields[2]) if len(fields) > 2 else 0
         if first_index < 0 or index_count < 0 or first_index + index_count > len(idx):
             raise ValueError(
-                "WWMI: %s tiene DrawIndexed fuera de Index.buf "
-                "(inicio=%d, cantidad=%d, indices=%d). "
-                "No se modificaron los buffers."
+                "WWMI: %s has a DrawIndexed range outside Index.buf "
+                "(start=%d, count=%d, indices=%d). "
+                "No buffers were modified."
                 % (part_name, first_index, index_count, len(idx)))
         if index_count % 3:
             raise ValueError(
-                "WWMI: %s contiene %d indices, no divisible entre 3. "
-                "No se modificaron los buffers."
+                "WWMI: %s contains %d indices, not divisible by 3. "
+                "No buffers were modified."
                 % (part_name, index_count))
         if index_count:
             raw_indices = idx[first_index:first_index + index_count].astype(np.int64)
@@ -1083,11 +1107,11 @@ def run(mod, mode, bounce=None):
             actual_max = int(raw_indices.max()) + base_vertex
             if actual_min < 0 or actual_max >= N:
                 raise ValueError(
-                    "WWMI: %s referencia vertices inexistentes "
-                    "(rango=%d..%d, vertices=%d, base=%d). "
-                    "No se modificaron los buffers."
+                    "WWMI: %s references nonexistent vertices "
+                    "(range=%d..%d, vertices=%d, base=%d). "
+                    "No buffers were modified."
                     % (part_name, actual_min, actual_max, N, base_vertex))
-    print("WWMI: rangos de DrawIndexed y referencias a vertices validados (%d partes)." % len(DRAWS))
+    print("WWMI: DrawIndexed ranges and vertex references validated (%d parts)." % len(DRAWS))
     print("ini %s   verts %d   tris %d   parts %d"
           % (os.path.basename(ini), N, len(T), len(DRAWS)))
     if not DRAWS:
@@ -1146,11 +1170,11 @@ def run(mod, mode, bounce=None):
                     stickman=rw is not None, skeleton_status=state, ready=ready, ini=ini, draw_meta=draw_meta,
                     wwmi_structure=wwmi_structure_summary, role_evidence=automatic_evidence)
     if unknown or not anatomy_names:
-        msg = 'Partes anatomicas desconocidas: '+', '.join(unknown) if unknown else 'No se identificaron partes anatomicas. Seleccionalas y guarda la anatomia.'
+        msg = 'Unknown anatomical parts: '+', '.join(unknown) if unknown else 'No anatomical parts were identified. Select them and save the anatomy.'
         if mode == 'diagnose': return result([msg])
         raise ValueError(msg)
     if not explicit_skin and not cfg.get('skin'):
-        print('Anatomia/roles automaticos: son sugerencias; comprobar todas las partes corporales.')
+        print('Automatic anatomy/roles are suggestions; check all body parts.')
 
     anatomy_v = np.unique(
         np.concatenate([verts(n) for n in anatomy_names])
@@ -1171,7 +1195,7 @@ def run(mod, mode, bounce=None):
         bi, bw = load_bones(M, N)
     except (OSError, ValueError, IndexError) as exc:
         if mode == 'diagnose':
-            return result(['No se pudieron leer los huesos para deformación: '+str(exc)])
+            return result(['Could not read bones for deformation: '+str(exc)])
         raise
     ini_txt = open(ini, encoding="utf-8", errors="replace").read()
     unified = os.path.exists(os.path.join(M, "BlendRemapVertexVG.buf")) or "vg_offset" in ini_txt
@@ -1199,10 +1223,10 @@ def run(mod, mode, bounce=None):
             rw = skeleton.region_weights(bi, bw, region)
             for n in DRAWS:
                 v = verts(n)
-                f = {'cabeza':rw['head'][v].mean(), 'torso':rw['torso'][v].mean(),
-                     'brazos':(rw['arm_l'][v]+rw['arm_r'][v]).mean(), 'piernas':(rw['leg_l'][v]+rw['leg_r'][v]).mean()}
+                f = {'head':rw['head'][v].mean(), 'torso':rw['torso'][v].mean(),
+                     'arms':(rw['arm_l'][v]+rw['arm_r'][v]).mean(), 'legs':(rw['leg_l'][v]+rw['leg_r'][v]).mean()}
                 k = max(f,key=f.get)
-                partial_regions[n] = '%s %d%%'%(k,round(100*f[k])) if f[k] > 0 else 'Sin identificar'
+                partial_regions[n] = '%s %d%%'%(k,round(100*f[k])) if f[k] > 0 else 'Unidentified'
             s = sinfo["seeds"]
             C = sinfo["centroid"]
             good = all(s[k] is not None for k in ("foot_r", "foot_l", "head", "hand_r", "hand_l"))
@@ -1214,9 +1238,9 @@ def run(mod, mode, bounce=None):
                         and rw["arm_l"].sum() > 100 and rw["arm_r"].sum() > 100)
             if not good:
                 print("stickman: incomplete skeleton -> falling back to geometric rules")
-                missing = [label for key,label in [('foot_r','pie derecho'),('foot_l','pie izquierdo'),('head','cabeza'),('hand_r','mano derecha'),('hand_l','mano izquierda')] if s[key] is None]
-                skeleton_warnings.append(('No se identificaron: '+', '.join(missing)+'. ' if missing else 'Las ramas corporales detectadas no superan la validación. ')+'Incluye las partes corporales faltantes en Anatomía, incluso si son ropa o están congeladas.')
-                partial_regions = {n: ('~ '+v if v != 'Sin identificar' else v) for n,v in partial_regions.items()}
+                missing = [label for key,label in [('foot_r','right foot'),('foot_l','left foot'),('head','head'),('hand_r','right hand'),('hand_l','left hand')] if s[key] is None]
+                skeleton_warnings.append(('Not identified: '+', '.join(missing)+'. ' if missing else 'The detected body branches did not pass validation. ')+'Include the missing body parts in Anatomy, even if they are clothing or frozen.')
+                partial_regions = {n: ('~ '+v if v != 'Unidentified' else v) for n,v in partial_regions.items()}
                 rw = None
                 state = "incomplete"
             else:
@@ -1234,7 +1258,7 @@ def run(mod, mode, bounce=None):
                 skeleton.print_anatomy_report(sinfo, region)
         except Exception as e:  # never block the sculpt because of the labeller
             print("stickman failed (%s) -> falling back to geometric rules" % e)
-            skeleton_warnings.append("Error al reconstruir el esqueleto: "+str(e))
+            skeleton_warnings.append("Error reconstructing the skeleton: "+str(e))
             rw = None
     # ---- diagnostic: 3D leg root distribution -----------------------------
     if rw is not None:
@@ -1295,11 +1319,11 @@ def run(mod, mode, bounce=None):
     head_of = {n: float(headw[verts(n)].mean()) for n in DRAWS}
     SKIN = [n for n in DRAWS if role_for(n) == 'skin']
     if not SKIN:
-        msg = 'No hay partes de piel. Marca manualmente las partes corporales.'
+        msg = 'No skin parts found. Manually mark the body parts.'
         if mode == 'diagnose': return result([msg])
         raise ValueError(msg)
     skin_v = np.unique(np.concatenate([verts(n) for n in SKIN]))
-    print("\n--- DIAGNOSTICO DE COMPONENTES ---")
+    print("\n--- COMPONENT DIAGNOSTIC ---")
 
     for name in DRAWS:
         v = verts(name)
@@ -1315,18 +1339,18 @@ def run(mod, mode, bounce=None):
             print(
                 f"{name}: "
                 f"verts={len(v)}, "
-                f"franja={len(band)}, "
+                f"band={len(band)}, "
                 f"min_abs_X={x.min():.3f}, "
                 f"X<0.8={np.sum(x < 0.8)}, "
                 f"X<3={np.sum(x < 3)}"
             )
         else:
-            print(f"{name}: verts={len(v)}, sin vertices en franja")
+            print(f"{name}: verts={len(v)}, no vertices in band")
 
     thigh_widths = [(band_stats(P0, skin_v, z - 1, z + 1) or (np.nan,))[0]
                     for z in np.arange(0.35 * H, 0.47 * H, 1.0)]
     if not np.isfinite(thigh_widths).any():
-        msg = "No hay superficie de Piel en la franja de muslos (Z %.1f–%.1f cm). Marca como Piel las partes corporales que cubren esa zona y vuelve a analizar. Piel actual: %s." % (.35*H,.47*H,", ".join(SKIN))
+        msg = "No Skin surface in the thigh band (Z %.1f–%.1f cm). Mark the body parts covering that region as Skin and analyze again. Current Skin: %s." % (.35*H,.47*H,", ".join(SKIN))
         if mode == "diagnose": return result([msg])
         raise ValueError(msg)
     thigh_half = np.nanmax(thigh_widths)
@@ -1353,14 +1377,14 @@ def run(mod, mode, bounce=None):
         arm_note = "%d arm bones (skin weight mostly at |x| > %.1f cm)" % (arm_bone.sum(), 1.05 * thigh_half)
 
     skin_core = skin_v[armw[skin_v] < 0.01]
-    print("\n--- DIAGNOSTICO DE FILTRO ---")
-    print("Partes SKIN:", SKIN)
+    print("\n--- FILTER DIAGNOSTIC ---")
+    print("SKIN parts:", SKIN)
     print("Vertices skin_v:", len(skin_v))
     print("Vertices skin_core:", len(skin_core))
 
     for name, vertices in [
-        ("ANTES del filtro", skin_v),
-        ("DESPUES del filtro", skin_core)
+        ("BEFORE filtering", skin_v),
+        ("AFTER filtering", skin_core)
     ]:
         band = vertices[
             (P0[vertices, 2] > 0.3 * H) &
@@ -1370,21 +1394,21 @@ def run(mod, mode, bounce=None):
         if len(band):
             x = np.abs(P0[band, 0])
             print(f"\n{name}:")
-            print("Vertices en franja:", len(band))
-            print("Minimo |X|:", x.min())
-            print("Vertices con |X| < 0.8:", np.sum(x < 0.8))
-            print("Vertices con |X| < 3:", np.sum(x < 3))
-            print("Vertices con |X| < 5:", np.sum(x < 5))
-            print("Vertices con |X| < 11:", np.sum(x < 11))
+            print("Vertices in band:", len(band))
+            print("Minimum |X|:", x.min())
+            print("Vertices with |X| < 0.8:", np.sum(x < 0.8))
+            print("Vertices with |X| < 3:", np.sum(x < 3))
+            print("Vertices with |X| < 5:", np.sum(x < 5))
+            print("Vertices with |X| < 11:", np.sum(x < 11))
     skin_tri = np.concatenate([tris(n) for n in SKIN])
     skin_tri = skin_tri[(armw[skin_tri] < 0.01).all(1)]
     if len(skin_core) < 500:
-        if mode == "diagnose": return result(["Piel insuficiente tras filtrar brazos."])
-        raise ValueError("Piel insuficiente tras filtrar brazos.")
+        if mode == "diagnose": return result(["Insufficient skin after filtering out the arms."])
+        raise ValueError("Insufficient skin after filtering out the arms.")
     try:
         L = measure(P0, skin_core, H, skin_tri)
     except (ValueError, IndexError) as e:
-        if mode == 'diagnose': return result(['No se pudieron medir las referencias: '+str(e)])
+        if mode == 'diagnose': return result(['Could not measure the landmarks: '+str(e)])
         raise
     natural = dict(L)
     if mode == "diagnose":
@@ -1421,15 +1445,15 @@ def run(mod, mode, bounce=None):
     L.update(cfg.get("landmarks", {}))
     warn = []
     if not (2.0 <= L["apex"] - L["crotch"] <= 14.0):
-        print("INFO: diferencia vertical entre entrepierna y punta del trasero: %.2f cm (no bloqueante)." % (L["apex"] - L["crotch"]))
+        print("INFO: vertical difference between crotch and gluteal apex: %.2f cm (non-blocking)." % (L["apex"] - L["crotch"]))
     if not (L["ankle"] < L["knee"] < L["crotch"] < L["waist"]):
         warn.append("landmark order ankle < knee < crotch < waist is broken")
 
     skin_top = float(P0[skin_core,2].max())
     if not all(np.isfinite(v) for v in L.values()) or L['waist'] >= min(skin_top,H) or not (L['knee'] < L['apex'] < L['waist'] and L['knee'] < L['hip_z'] < L['waist']) or L['hip_z'] > L['apex'] + .55*(L['crotch']-L['knee']):
-        warn.append('Medidas incompatibles: cintura %.2f, cadera Z %.2f, entrepierna %.2f, trasero %.2f, límite de piel %.2f cm. Revisa la selección de Piel o corrige las medidas visibles.' % (L['waist'],L['hip_z'],L['crotch'],L['apex'],skin_top))
+        warn.append('Incompatible measurements: waist %.2f, hip Z %.2f, crotch %.2f, gluteal apex %.2f, skin limit %.2f cm. Check the Skin selection or correct the displayed measurements.' % (L['waist'],L['hip_z'],L['crotch'],L['apex'],skin_top))
     if state in ('incomplete','failed'):
-        warn.append('Esqueleto unificado incompleto o no reconstruido; incluye cabeza, brazos y piernas en anatomia.')
+        warn.append('Unified skeleton incomplete or not reconstructed; include the head, arms and legs in anatomy.')
     freeze = set(cfg["freeze"]) | {n for n in DRAWS if COMP[n] in (0,1,2) and n not in explicit_roles}
     auto_frozen = []
     for n in DRAWS:
@@ -1462,12 +1486,12 @@ def run(mod, mode, bounce=None):
         if rw is not None:
             for n in DRAWS:
                 v = verts(n)
-                f = {'cabeza':rw['head'][v].mean(), 'torso':rw['torso'][v].mean(),
-                     'brazos':(rw['arm_l'][v]+rw['arm_r'][v]).mean(), 'piernas':(rw['leg_l'][v]+rw['leg_r'][v]).mean()}
-                k = max(f,key=f.get); regions[n] = '%s %d%%'%(k,round(100*f[k])) if round(100*f[k]) > 0 else 'Sin identificar'
+                f = {'head':rw['head'][v].mean(), 'torso':rw['torso'][v].mean(),
+                     'arms':(rw['arm_l'][v]+rw['arm_r'][v]).mean(), 'legs':(rw['leg_l'][v]+rw['leg_r'][v]).mean()}
+                k = max(f,key=f.get); regions[n] = '%s %d%%'%(k,round(100*f[k])) if round(100*f[k]) > 0 else 'Unidentified'
         return result(warn, L, roles, regions, ready=not (warn or skeleton_warnings), natural=natural)
     if warn:
-        raise ValueError('Aplicacion bloqueada: '+ '; '.join(warn))
+        raise ValueError('Apply blocked: '+ '; '.join(warn))
     if not os.path.exists(cfg_path):
         out = dict(DEFAULT_CFG)
         out["_auto_skin"] = SKIN

@@ -1,0 +1,36 @@
+THICC TOOL 004 — CACHE AND NOTIFICATIONS
+
+Analyze: uses a valid cache. Force analyze: bypasses both new caches and the
+original surface-profile cache; runs a fresh diagnostic.
+Analyze library / Force analyze library: equivalent modes for the library;
+one audible and visual notification at the end of the batch.
+
+New files per mod:
+- thicc_detection_cache.json: normalized evidence, details reported by the
+  002 detectors, scores, contributions and detection console output.
+- thicc_analysis_cache.json: complete diagnose result, including parts,
+  effective roles, cfg, draw_meta, landmarks, natural, height, skeleton status,
+  warnings, evidence and captured console output.
+Both JSON files have a schema, integrity hash and atomic writes. They do not
+contain pickle data. The original worker's temporary pickle remains for local IPC.
+
+SHA-256: detectors_hash (detection modules, loader code and dependencies),
+classifier_hash (WEIGHTS and classify_part), mesh_hash (Position.buf.orig or
+Position.buf, Index.buf, Blend.buf, BlendRemapVertexVG.buf and the active INI).
+analysis_hash and config_hash validate the complete snapshot. Changing weights
+reuses normalized evidence; changing normalization may require rerunning detectors.
+The entire INI is used conservatively: even visibility changes may invalidate
+ the cache. Textures and output buffers are not involved. Configuration changes
+invalidate only the complete snapshot.
+Per-component detector errors prevent saving a new snapshot;
+a normally incomplete anatomy can be saved with ready=False and its warnings.
+The popup distinguishes Real analysis, FULL CACHE, DETECTION CACHE + new morphology,
+and CACHED DETECTORS + new classification. Green indicates reused results.
+On Windows, winsound.MessageBeep is used; fallback: QApplication.beep.
+Weights, deformation algorithm and 3D viewer were not modified.
+
+Synthetic tests: real 4.133 s / full hit 0.051 s, identical dump except for
+the new cache notice. Modified cfg: detection hit. Force: detection miss.
+Temporary weight change: entry into the reclassification branch was confirmed;
+that integration test was not completed; original weights restored.
+Windows GUI, sound and real-mod performance remain to be validated.

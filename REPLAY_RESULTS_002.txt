@@ -1,6 +1,6 @@
 
 M00
-Component 3 - Línea 405 | +85.0 | skin | {'surface': 40.0, 'stickman': 25.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 0.0, 'topology': -3.0, 'vertices': 1.0}
+Component 3 - Line 405 | +85.0 | skin | {'surface': 40.0, 'stickman': 25.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 0.0, 'topology': -3.0, 'vertices': 1.0}
 
 M01
 Component 3 Body No Nipples | +90.0 | skin | {'surface': 40.0, 'stickman': 25.0, 'welded': 12.0, 'shape': 4.0, 'height': 6.0, 'naming': 5.0, 'topology': -3.0, 'vertices': 1.0}

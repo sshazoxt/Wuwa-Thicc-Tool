@@ -554,7 +554,12 @@ class App(QMainWindow):
 
     def read_cfg(self, m):
         try:
-            return json.load(open(self.cfg_path(m), encoding="utf-8"))
+            cfg = json.load(open(self.cfg_path(m), encoding="utf-8"))
+            try:
+                te.normalize_legacy_part_names(cfg, te.parse_draws(te.find_ini(m)))
+            except (OSError, ValueError, SystemExit):
+                pass
+            return cfg
         except Exception:
             return {}
 

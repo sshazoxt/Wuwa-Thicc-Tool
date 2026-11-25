@@ -66,7 +66,7 @@ def parse_draws(ini, comps=None, metadata=None):
                 name = m.group(1).strip()
                 break
         if name is None:
-            name = "Component %s - Línea %d" % (comp, i + 1)
+            name = "Component %s - Line %d" % (comp, i + 1)
         base, n = name, 2
         while name in out:
             name = "%s (%d)" % (base, n)
@@ -131,8 +131,8 @@ def measure(P, skin, H, skin_tri):
         (P[skin, 2] < 0.7 * H)
     ]
 
-    print("\n--- DIAGNOSTICO DE COORDENADAS ---")
-    print("Vertices en franja Z:", len(z_band))
+    print("\n--- COORDINATE DIAGNOSTIC ---")
+    print("Vertices in Z band:", len(z_band))
 
     if len(z_band):
         xyz = P[z_band]
@@ -140,13 +140,13 @@ def measure(P, skin, H, skin_tri):
         for i, axis in enumerate(["X", "Y", "Z"]):
             values = xyz[:, i]
             print(
-                f"{axis}: rango {values.min():.3f} a {values.max():.3f} "
-                f"| minimo valor absoluto: {np.abs(values).min():.3f}"
+                f"{axis}: range {values.min():.3f} to {values.max():.3f} "
+                f"| minimum absolute value: {np.abs(values).min():.3f}"
             )
 
         nearest = z_band[np.argsort(np.abs(P[z_band, 0]))[:10]]
 
-        print("\n10 vertices mas cercanos al centro X:")
+        print("\n10 vertices closest to the X centerline:")
         for v in nearest:
             print(
                 f"X={P[v,0]:.3f} "
@@ -161,12 +161,12 @@ def measure(P, skin, H, skin_tri):
         skin_xyz = P[skin]
 
         raise ValueError(
-            "No se encontraron vertices de piel en la zona de la entrepierna.\n"
-            f"Vertices Skin: {len(skin)}\n"
-            f"Altura H: {H:.4f}\n"
-            f"Rango X: {skin_xyz[:, 0].min():.4f} a {skin_xyz[:, 0].max():.4f}\n"
-            f"Rango Z: {skin_xyz[:, 2].min():.4f} a {skin_xyz[:, 2].max():.4f}\n"
-            "Revisa la seleccion de partes Skin o la posicion del modelo."
+            "No skin vertices were found in the crotch region.\n"
+            f"Skin vertices: {len(skin)}\n"
+            f"Height H: {H:.4f}\n"
+            f"X range: {skin_xyz[:, 0].min():.4f} to {skin_xyz[:, 0].max():.4f}\n"
+            f"Z range: {skin_xyz[:, 2].min():.4f} to {skin_xyz[:, 2].max():.4f}\n"
+            "Check the Skin part selection or the model position."
         )
 
     L["crotch"] = float(P[down, 2].min() if len(down) else P[near, 2].min())

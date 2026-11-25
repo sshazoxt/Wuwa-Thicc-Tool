@@ -1,0 +1,10 @@
+Patch: comparison of welded vs. index-based connectivity (2026-11-22)
+
+Modified files: thicc_edit.py, wwmi_role_evidence.py
+
+- Analyze prints index-based and coincident-position connectivity for skin candidates, manual skin and manual anatomy.
+- Displays shadow_auto and shadow_veto: hypothetical results of applying the same criterion to welded connectivity.
+- Retains the original automatic classification and veto to avoid unexpected changes during Apply.
+- Does not change thicc.json, anatomical masks, vertices or buffers.
+- Welding uses a minimal relative tolerance (1e-7 of the local extent) and may differ from other diagnostics that use different tolerances.
+- Deformation of the five mods has not been tested; compare logs before enabling any role changes.

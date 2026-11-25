@@ -49,7 +49,7 @@ def populate(plot,mod,ini,names,wire=False,original=False,mode=None):
             plot.add_mesh(m,scalars='Displacement',cmap='inferno',clim=(0,maximum or 1),style=style,show_scalar_bar=i==0,scalar_bar_args={'title':'Displacement (model units)'})
         else:
             plot.add_mesh(mesh(o if mode=='Original' else p),color=['#b7c9dd','#e6af85','#8dcbb5','#c4a7e7'][i%4],style=style,label=name)
-    if mode=='Displacement': plot.add_text(f'Máximo: {maximum:.4f} unidades del modelo',font_size=10)
+    if mode=='Displacement': plot.add_text(f'Maximum: {maximum:.4f} model units',font_size=10)
     else: plot.add_legend()
     plot.add_axes(); plot.view_isometric(); plot.reset_camera()
 

@@ -1,0 +1,2 @@
+Thicc Tool 006 — graphics initialization before displaying the window.
+Warm-up without timers, on the Qt thread. The hierarchy is prepared with WA_DontShowOnScreen; the window is then revealed. Retry remains available if the viewer fails. Detection, cache and deformation are unchanged. Real Windows graphics testing remains pending.

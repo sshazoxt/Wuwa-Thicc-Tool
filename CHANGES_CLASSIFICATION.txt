@@ -1,0 +1,15 @@
+THICC TOOL 3.2.6 - Collaborative classification (experimental)
+
+Actual integration: wwmi_role_evidence.assess_auto_skin is called within
+thicc_edit.run BEFORE building anatomy_names, SKIN and the stickman.
+An automatic skin suggestion is rejected if the mesh has >=12 triangle islands,
+the dominant island contains <35% of triangles, and the part has >=100 triangles.
+Clothing or Frozen is NOT automatically assigned.
+Manual skin/move/freeze roles have absolute priority.
+The GUI receives role_evidence in the existing analysis result.
+
+Limitations: the thresholds are conservative heuristics pending validation on
+Suoming, Hsin and Iuno. Fragmentation does not prove surface type.
+Conditional variants and textures are not yet connected to the decision.
+Deformation, armpit, thigh and Wardrobe files are unchanged.
+Use Analyze first; review categories before Apply.

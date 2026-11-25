@@ -1,0 +1,9 @@
+Thicc Tool 3.2.6 + phase 1.9B (internal diagnostic)
+
+Installation: back up the current folder and replace it with the contents of this package.
+Usage: open thicc_tool_gui.pyw as usual, select a mod and click Analyze.
+Do not run extra scripts. The engine and armpit functions are unchanged.
+Structural analysis runs automatically during normal diagnosis.
+Its conclusions do not change roles, visibility or masks: variants are not fully validated.
+The summarized result is stored in wwmi_structure within the diagnostic object and in the log.
+The previously supplied separate patch is not required.

@@ -1,0 +1,14 @@
+PHASE 1.9C - Conservative connectivity reconciliation (2026-11-22)
+Files: thicc_edit.py and wwmi_role_evidence.py.
+The automatic index-fragmentation veto can be lifted ONLY if:
+- the component was already an automatic skin candidate;
+- geometric welding shows <=2 islands and >=90% dominant triangles;
+- the component name contains skin, body, nude or basebody.
+Welding does not create new skin candidates. Manual roles, manual anatomy,
+thicc.json configuration, meshes and buffers are unchanged.
+The name test is intentionally conservative; components without anatomical
+names remain vetoed and require manual verification.
+The diagnostic report now reflects the 1.9C criteria.
+VALIDATION: synthetic unit tests and Python compilation; the five real mods
+have not been run. The automatic change should be reviewed before distribution
+as a production engine.

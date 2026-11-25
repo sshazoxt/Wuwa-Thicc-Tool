@@ -1,0 +1,32 @@
+THICC TOOL 002 - Experimental weighted classification
+
+Extract the complete ZIP into a new folder and run Thicc_tool.bat.
+Keep version 001. To test automatic classification on an already configured mod,
+use Reset automatic (clears saved roles, anatomy and landmarks; back up thicc.json
+first if you want to retain them). Manual roles always take precedence. The Role
+column has a tooltip with the score, contributions, coverage and automatic result;
+the console includes the details.
+
+Weights: Surface 40, individual Stickman 25, Welded 12, Shape 8, height 6,
+Naming 5, veto 3, vertices 1. Skin >=40 (strong >=60), ambiguous >=20,
+garment <=-20, otherwise unresolved. Ambiguous/unresolved is treated as Clothing
+(or Frozen under the original protection rules), never automatic Skin.
+The veto only subtracts 3. Missing data neither adds nor subtracts points;
+no renormalization. Fixed components 0/1/2: front hair/back hair/face,
+automatically Frozen; face included in automatic anatomy. Manual selections
+are respected.
+
+Surface analysis runs in both all and raw modes without a veto; all is used
+when available, with raw as fallback. Individual Stickman does not depend on
+roles and does not penalize partial skeletons. Local IDs are not combined for
+global Stickman. The Lab detection modules are isolated in detection002/;
+the original deformation engine and its landmarks remain unchanged.
+No new regional detection or automatic variant merging was implemented;
+review Wardrobe roles and regions before applying.
+The original diagnostic may update its .thicc_surface_cache.json cache.
+
+Tests: Python compilation, replay of scores from six v0.1 logs (see
+REPLAY_RESULTS_002.txt), and synthetic integration tests.
+This is not equivalent to running the six actual mods; the Windows GUI and
+Apply on real mods were not tested. Analysis may take longer because of the
+two surface-analysis passes.

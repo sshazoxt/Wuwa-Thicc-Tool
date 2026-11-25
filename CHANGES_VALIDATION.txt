@@ -1,0 +1,1 @@
+Validation integrated into the engine: DrawIndexed ranges, multiples of three and actual references to Position.buf are checked before analysis. The use of base_vertex in verts()/tris() is corrected. Phase 1.9B remains non-decision-making diagnostic evidence; automatic variant classification is not considered resolved.

@@ -1,0 +1,8 @@
+005 — Early 3D viewer initialization
+- QtInteractor and PyVista are loaded once after displaying the main window.
+- The graphics context and rendering of a test mesh are prepared before a mod is requested.
+- The embedded widget is retained and the automatic render timer is disabled; views request explicit rendering.
+- The modal viewer-loading dialog is removed; inline status and timing logs are used instead.
+- If Python initialization fails, the error is logged and View 3D geometry can be used to retry.
+- Loading remains on the Qt thread (required for widgets and the graphics context); startup or large meshes may cause a pause.
+- Detection, cache, deformation and viewer3d.py are unchanged. Real Windows testing with PySide6/PyVistaQt remains pending.

@@ -1,0 +1,6 @@
+Thicc Tool 003 — GUI refresh
+Neutral Dark / Light; panels, table and HTML tooltip.
+Double-click Part: selects only that row and opens the existing viewer.
+Double-click Label: retains editing. View 3D geometry button unchanged.
+Engine, classification, weights and remaining 002 files unchanged.
+Tests: compilation and double-click dispatch with mock objects; Windows GUI not run.

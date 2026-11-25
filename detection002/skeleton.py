@@ -28,7 +28,7 @@ def bone_graph(P, bi, bw, min_w=0.5, triangles=None):
     adj = {}
     K = bi.shape[1]
 
-    # 1. Conexiones por huesos que comparten un mismo vértice.
+    # 1. Connections between bones sharing the same vertex.
     for k1 in range(K):
         for k2 in range(k1 + 1, K):
             m = (
@@ -51,7 +51,7 @@ def bone_graph(P, bi, bw, min_w=0.5, triangles=None):
             for kk, ss in zip(u, s):
                 adj[int(kk)] = adj.get(int(kk), 0.0) + float(ss)
 
-    # 2. Conexiones entre huesos presentes en vértices vecinos
+    # 2. Connections between bones present in neighboring vertices
     #    de la misma superficie triangular.
     if triangles is not None and len(triangles):
         tri = np.asarray(triangles, dtype=np.int64)
@@ -338,7 +338,7 @@ def label_bones(P, bi, bw, H, vertex_mask=None, triangles=None, face_mask=None):
     region = {}
 
 
-    # Identificar el último hueso compartido por ambas piernas.
+    # Identify the last bone shared by both legs.
     right = paths.get("foot_r", [])
     left = paths.get("foot_l", [])
 

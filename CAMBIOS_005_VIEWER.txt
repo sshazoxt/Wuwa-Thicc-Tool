@@ -1,8 +1,0 @@
-005 — Inicialización anticipada del visor 3D
-- QtInteractor y PyVista se cargan una vez después de mostrar la ventana principal.
-- Contexto gráfico y renderizado de una malla de prueba se preparan antes de solicitar un mod.
-- Se conserva el widget integrado y se desactiva el temporizador de render automático; las vistas solicitan render explícito.
-- Se elimina el diálogo modal de carga del visor; estado inline y registro de tiempos.
-- Si falla la inicialización Python, se registra y se puede reintentar con View 3D geometry.
-- La carga sigue en el hilo Qt (requisito de widgets/contexto gráfico); durante el arranque o mallas grandes puede haber una pausa.
-- No se modifica detección, caché, deformación ni viewer3d.py. Pendiente prueba real en Windows con PySide6/PyVistaQt.

@@ -1,6 +1,0 @@
-Thicc Tool 003 — GUI refresh
-Dark neutral / Light; paneles, tabla y tooltip HTML.
-Doble clic Part: selecciona solo la fila y llama al visor existente.
-Doble clic Label: conserva edición. Botón View 3D geometry intacto.
-Motor, clasificación, pesos y archivos restantes de 002 sin cambios.
-Pruebas: compilación y despacho de doble clic con objetos simulados; GUI Windows no ejecutada.
