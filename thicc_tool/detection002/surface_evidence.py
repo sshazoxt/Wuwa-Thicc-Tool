@@ -28,7 +28,7 @@ def similarity(a,b):
     return sum(min(v,b.get(k,0)) for k,v in a.items())
 
 
-def calculate(P,draws,L,bi,bw,unified,ini=None,meta=None,independent=False, debug=False):
+def calculate(P,draws,L,bi,bw,unified,ini=None,meta=None,independent=False, debug=False,context=None):
     span=float(L['crotch']-L['ankle']); eps=max(span*1e-5,1e-7)
     if not np.isfinite(span) or span<=0: print('Invalid interval'); return
     # Retain phase 1.4 output for comparison; cached together with new evidence.
@@ -42,7 +42,7 @@ def calculate(P,draws,L,bi,bw,unified,ini=None,meta=None,independent=False, debu
     records=[]; evidence={}
     for name,t,role in draws:
         if not len(t): continue
-        ids=np.unique(t); lo,hi=P[ids,2].min(),P[ids,2].max()
+        ids=np.unique(t) if context is None else context.vertex_ids(name); lo,hi=P[ids,2].min(),P[ids,2].max()
         evidence[name]=dict(name=name,role=role,counts=None,waist=False,knees=False,hard=None)
         if debug:
             raw=sp.islands(t); welded=welded_groups(P,t,eps)
@@ -89,7 +89,7 @@ def calculate(P,draws,L,bi,bw,unified,ini=None,meta=None,independent=False, debu
                     if not side:
                         for p,h in sp.minima(c,z,span)[:2]: print(f'    virtual waist candidate Z={h:.2f}; prominence={p:.2f}')
         print('No roles, engine landmarks or vertices changed; no INI exclusivity inferred.')
-    top,pairs=sr.report(P,draws,L,bi,bw,unified,ini,meta,debug=debug)
+    top,pairs=sr.report(P,draws,L,bi,bw,unified,ini,meta,debug=debug,context=context)
     for name,hard in top.items(): evidence[name]["hard"]=hard
     return sc.report(list(evidence.values()),pairs)
 

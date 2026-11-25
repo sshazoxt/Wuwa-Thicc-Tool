@@ -39,18 +39,21 @@ def classify_part(component_id, evidence, weights=None):
                 strength=strength, coverage=available/total, contributions=contributions)
 
 
-def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
+def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False, context=None):
     """Use the same validated draw ranges as the main tool; no saved roles enter here."""
     start=time.perf_counter(); N=len(P); names=list(faces)
-    V={n:np.unique(t) for n,t in faces.items()}
+    from analysis_context import AnalysisContext, AnalysisOptions
+    context = context or AnalysisContext(P, faces, options=AnalysisOptions(debug=verbose))
+    verbose = context.options.debug
+    V={n:context.vertex_ids(n) for n in names}
     body=[n for n in names if comp[n]>=3]; face=[n for n in names if comp[n]==2]
     filtered=face+body
-    def union(ns): return np.unique(np.concatenate([V[n] for n in ns])) if ns else np.empty(0,dtype=np.int64)
+    def union(ns): return context.union(ns)
     def triangles(ns): return np.concatenate([faces[n] for n in ns]) if ns else np.empty((0,3),dtype=np.int64)
     faceids=union(face); filterids=union(filtered)
     H=float(P[faceids,2].max()) if len(faceids) else float(P[filterids,2].max()) if len(filterids) else float(P[:,2].max())
     extent=H-float(P[filterids,2].min()) if len(filterids) else float(np.ptp(P[:,2]))
-    info={n:(float(P[V[n],2].min()),float(P[V[n],2].max()),len(V[n])) for n in names}
+    info={n:context.part(n).z_info for n in names}
     print('\n===== WEIGHTED DETECTION 002 =====',flush=True)
     print('Weights:',WEIGHTS,'| face Zmax:',H,'| fixed 0/1/2 excluded')
     raw=[]; evidence={}; details={}
@@ -66,14 +69,14 @@ def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
     for n in body:
         e= evidence[n]; d=details[n]; d['raw_skin']=n in raw
         try:
-            i,f=_island_evidence(faces[n]); d.update(islands=i,dominant_fraction=f)
+            i,f=_island_evidence(faces[n], local_geometry=(V[n],context.part(n).local_triangles)); d.update(islands=i,dominant_fraction=f)
             fragmented=i>=12 and f<.35 and len(faces[n])>=100
             d['fragmented']=bool(fragmented)
             # Legacy veto is only a negative vote; no candidate is removed.
             e['topology']=0. if not (n in raw and fragmented) else None
         except Exception as ex: print('[Detection] indexed',n,ex)
         try:
-            j,g=welded_island_evidence(P,faces[n]); d.update(welded_islands=j,welded_dominant_fraction=g)
+            j,g=welded_island_evidence(P,faces[n],local_geometry=(V[n],context.part(n).local_triangles),points=context.part(n).points); d.update(welded_islands=j,welded_dominant_fraction=g)
             e['welded']=1. if g>=.90 else .75 if g>=.70 else .25 if g>=.40 else -.50
             if 'fragmented' in d:
                 import re
@@ -82,13 +85,13 @@ def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
                 d.update(veto_auto_skin=veto,index_fragmentation_rescued=bool(rescue)); e['topology']=-1. if veto else 0.
         except Exception as ex: print('[Detection] welded',n,ex)
         try:
-            sh=shape_recognition.describe(P,faces[n],extent,debug=verbose,vertex_ids=V[n]); label=sh['label']; d['shape']={k:sh[k] for k in ('label','islands','dominant','surface')}; d['shape']['dominant_profile']=sh['profiles'][0] if sh['profiles'] else None
+            sh=shape_recognition.describe(P,faces[n],extent,debug=verbose,vertex_ids=V[n],local_faces=context.part(n).local_triangles,points=context.part(n).points); label=sh['label']; d['shape']={k:sh[k] for k in ('label','islands','dominant','surface')}; d['shape']['dominant_profile']=sh['profiles'][0] if sh['profiles'] else None
             e['shape']=.5 if label=='candidato volumen inferior' else -.5 if label.startswith('fragmentado') else 0.
         except Exception as ex: print('[Detection] shape',n,ex)
     print('[Detection] Topology and shape finished.',flush=True)
     bi=bw=None; unified=False
     try:
-        bi,bw=load_bones(bones_path,N); vg=os.path.join(bones_path,'BlendRemapVertexVG.buf')
+        bi,bw=context.bones(bones_path,N,load_bones); vg=os.path.join(bones_path,'BlendRemapVertexVG.buf')
         unified=os.path.isfile(vg) and os.path.getsize(vg)==N*bi.shape[1]*2
     except Exception as ex: print('[Detection] Bone data unavailable:',ex)
     def stick(ns, anchor=False):
@@ -145,7 +148,7 @@ def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
         except ValueError: b=w=None; u=False
         if b is None: b=np.zeros((N,1),dtype=np.int64); w=np.zeros((N,1)); u=False
         ds=[(n,faces[n],'unclassified') for n in body]
-        with contextlib.redirect_stdout(Quiet()): out=surface_evidence.calculate(P,ds,L,b,w,u,ini,meta,independent=True,debug=verbose)
+        with contextlib.redirect_stdout(Quiet()): out=surface_evidence.calculate(P,ds,L,b,w,u,ini,meta,independent=True,debug=verbose,context=context)
         return out or {},L
     all_surface={}; raw_surface={}
     for label,ns in [('all',body),('raw',raw)]:

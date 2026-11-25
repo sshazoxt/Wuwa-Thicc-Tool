@@ -780,7 +780,7 @@ def penetration(name, A0, A1, B0, B1, tri, sc, allow_s, zlim, cell=3.0):
 def find_ini(mod):
     best, n = None, -1
     for f in os.listdir(mod):
-        if not f.lower().endswith(".ini") or f.upper().startswith("DISABLED"):
+        if not f.lower().endswith(".ini") or "disabled" in f.lower():
             continue
         t = open(os.path.join(mod, f), encoding="utf-8", errors="replace").read()
         c = t.count("drawindexed")
@@ -912,6 +912,42 @@ def torso_half(xabs, gap=2.5):
     d = np.diff(v)
     br = np.nonzero(d > gap)[0]
     return v[br[0]] if len(br) else v[-1]
+
+
+
+def fixed_core_outline(original, triangles, zs):
+    """Keep original section membership throughout X-only hip calibration.
+
+    contour() enumerates intersections in triangle/edge order, determined by Z.
+    Calibration changes only X; therefore these sample identities are stable.
+    The original cutoff and first-gap filter are applied once, not after growth.
+    """
+    tri = original[triangles]
+    masks = []
+    for z in zs:
+        x = np.abs(contour(tri, z)[:, 0])
+        mask = x < 26.0
+        if np.count_nonzero(mask) >= 6:
+            mask &= x <= torso_half(x[mask]) + 1e-8
+        else:
+            mask[:] = False
+        masks.append(mask)
+
+    def outline(Q):
+        tri = Q[triangles]
+        out = np.full(len(zs), np.nan)
+        for i, z in enumerate(zs):
+            x = np.abs(contour(tri, z)[:, 0])
+            mask = masks[i]
+            if len(x) != len(mask):
+                raise RuntimeError("Hip calibration section correspondence changed")
+            # Preserve the legacy baseline even when its core has fewer than
+            # six points: the six-point gate applies to the original section.
+            if np.any(mask):
+                out[i] = np.max(x[mask])
+        return out
+
+    return outline
 
 
 def measure(P, skin, H, skin_tri):
@@ -1052,7 +1088,10 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     # Phase 1.9B: internal, read-only structural evidence. The user does not
     # launch a second script. Never change Wardrobe roles or morph masks here.
     wwmi_structure_summary = None
-    if mode == "diagnose":
+    # DEBUG_ONLY: reserved for future Debug Mode; structural report is not consumed.
+    from analysis_context import AnalysisOptions
+    options = AnalysisOptions()
+    if mode == "diagnose" and options.debug:
         try:
             from wwmi_structure import analyze as analyze_wwmi_structure
             structural = analyze_wwmi_structure(ini)
@@ -1120,23 +1159,21 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         sys.exit("no drawindexed found in the TextureOverrideComponent sections of " + ini)
 
     # Per-run immutable draw geometry: shared by analysis and deformation.
-    from functools import lru_cache
-    @lru_cache(maxsize=None)
-    def verts(n):
-        return np.unique(tris(n))
-
-    @lru_cache(maxsize=None)
-    def tris(n):
+    from analysis_context import AnalysisContext
+    def draw_triangles(n):
         s, c = DRAWS[n]
         fields = draw_meta[n]["draw"].split(",")
         base = int(fields[2]) if len(fields) > 2 else 0
         return (idx[s:s+c].astype(np.int64) + base).reshape(-1, 3)
     
+    context = AnalysisContext(P0, draw_triangles, DRAWS, options=options)
+    verts, tris = context.vertex_ids, context.triangles
+    faces = {n: tris(n) for n in DRAWS}
     # 002: independent read-only evidence, before effective roles or anatomy.
-    info = {n: (float(P0[verts(n),2].min()), float(P0[verts(n),2].max()), len(verts(n))) for n in DRAWS}
+    info = {n: context.part(n).z_info for n in DRAWS}
     from detection_cache import detection
-    automatic_evidence = detection(P0, {n: tris(n) for n in DRAWS}, COMP,
-                                  ini, draw_meta, M, load_bones)
+    automatic_evidence = detection(P0, faces, COMP,
+                                  ini, draw_meta, M, load_bones, context=context)
     suggested = [n for n in DRAWS if automatic_evidence[n]['role'] == 'skin']
     explicit_skin = set(cfg.get('skin', []))
     explicit_roles = explicit_skin | set(cfg.get('freeze', [])) | set(cfg.get('move', []))
@@ -1150,7 +1187,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
             for note in reference['notes']: print('[Full Body]', note)
         effective_skin = [n for n in DRAWS if n in explicit_skin or (n not in explicit_roles and n in suggested)]
         base_anatomy = [n for n in cfg.get('anatomy',[]) if n in DRAWS] or effective_skin + [n for n in DRAWS if COMP[n]==2]
-        candidates = arf_diagnose(P0, {n: tris(n) for n in DRAWS}, COMP, ini, draw_meta, automatic_evidence, M, load_bones, reference, blocked=explicit_roles | {n for n in DRAWS if FREEZE_RE.search(n)}, anatomy=base_anatomy, effective_skin=effective_skin) or []
+        candidates = arf_diagnose(P0, faces, COMP, ini, draw_meta, automatic_evidence, M, load_bones, reference, blocked=explicit_roles | {n for n in DRAWS if FREEZE_RE.search(n)}, anatomy=base_anatomy, effective_skin=effective_skin, context=context) or []
         recovered = [n for n in candidates if n not in explicit_roles and not FREEZE_RE.search(n)]
         suggested.extend(recovered)
         print('[ARF] Effective Skin recovery:', recovered)
@@ -1196,9 +1233,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     if not explicit_skin and not cfg.get('skin'):
         print('Automatic anatomy/roles are suggestions; check all body parts.')
 
-    anatomy_v = np.unique(
-        np.concatenate([verts(n) for n in anatomy_names])
-    )
+    anatomy_v = context.union(anatomy_names)
 
     anatomy_mask = np.zeros(N, dtype=bool)
     anatomy_mask[anatomy_v] = True
@@ -1212,7 +1247,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
 
     # ---- bones: unified skeleton or per-component ids ------------------------
     try:
-        bi, bw = load_bones(M, N)
+        bi, bw = context.bones(M, N, load_bones)
     except (OSError, ValueError, IndexError) as exc:
         if mode == 'diagnose':
             return result(['Could not read bones for deformation: '+str(exc)])
@@ -1335,14 +1370,14 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     headw = rw["head"] if rw is not None else np.zeros(N)
 
     # ---- classification ----------------------------------------------------
-    info = {n: (P0[verts(n), 2].min(), P0[verts(n), 2].max(), len(verts(n))) for n in DRAWS}
+    info = {n: context.part(n).z_info for n in DRAWS}
     head_of = {n: float(headw[verts(n)].mean()) for n in DRAWS}
     SKIN = [n for n in DRAWS if role_for(n) == 'skin']
     if not SKIN:
         msg = 'No skin parts found. Manually mark the body parts.'
         if mode == 'diagnose': return result([msg])
         raise ValueError(msg)
-    skin_v = np.unique(np.concatenate([verts(n) for n in SKIN]))
+    skin_v = context.union(SKIN)
     print("\n--- COMPONENT DIAGNOSTIC ---")
 
     for name in DRAWS:
@@ -1432,7 +1467,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         raise
     natural = dict(L)
     # DEBUG_ONLY: enable via future debug mode; no effect on effective landmarks.
-    DEBUG_LEGACY_REPORTS = False
+    DEBUG_LEGACY_REPORTS = context.options.debug
     if mode == "diagnose" and DEBUG_LEGACY_REPORTS:
         try:
             import torso_profile
@@ -1695,17 +1730,8 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     g = np.exp(-0.5 * (np.arange(-3, 4) / 1.5) ** 2)
     g /= g.sum()
 
-    def outline(Q):
-        # exact cross-section contour (independent of the vertex density)
-        tri = Q[tri_l]
-        o = np.full(len(zs), np.nan)
-        for i, z in enumerate(zs):
-            c = contour(tri, z)
-            c = np.abs(c[:, 0])
-            c = c[c < 26.0]
-            if len(c) >= 6:
-                o[i] = torso_half(c)
-        return o
+    outline = fixed_core_outline(PRs, tri_l, zs)
+    print("Hip contour calibration: Fixed Core (original section membership)")
     original_outline = outline(PRs)
     relative = bool(cfg.get("relative_silhouette", False))
     if coupled:
@@ -1774,7 +1800,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     # ---- apply -------------------------------------------------------------
     fdx, fdy = sc.field(P0[:, 0], P0[:, 1], P0[:, 2])
     from seam_guard import SeamGuard
-    frozen_ids = np.unique(np.concatenate([verts(n) for n in freeze if n in DRAWS])) if any(n in DRAWS for n in freeze) else np.empty(0, dtype=np.int64)
+    frozen_ids = context.union(n for n in freeze if n in DRAWS) if any(n in DRAWS for n in freeze) else np.empty(0, dtype=np.int64)
     seam = SeamGuard(P0, frozen_ids, allow, H) if cfg.get("seam_guard", True) else SeamGuard(P0, [], allow, H)
     guard = seam(P0)
     print("\n===== DEFORMATION PHASE 2.1 / SEAM GUARD =====")
@@ -1834,7 +1860,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         if cfg.get("surface_shading", "Original") == "Legacy":
             raise ValueError("Clothing adaptation requires Original, Adaptive or Geometric shading.")
         from clothing_adaptation import adapt
-        garment_ids = np.unique(np.concatenate([verts(n) for n in GARMENTS])) if GARMENTS else np.empty(0, dtype=np.int64)
+        garment_ids = context.union(GARMENTS) if GARMENTS else np.empty(0, dtype=np.int64)
         new = adapt(P0, new, skin_core, garment_ids, T, allow*guard, H) if len(garment_ids) else new
         dx, dy = (new-P0)[:,0], (new-P0)[:,1]
     if reconstructed_fill:
@@ -1917,7 +1943,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     parts = ["%s %.2f" % (n, disp[verts(n)].max()) for n in DRAWS if (disp[verts(n)] > 0.02).any()]
     print("per part max |d|: " + ", ".join(parts))
     if freeze:
-        fr = np.unique(np.concatenate([verts(n) for n in freeze if n in DRAWS]))
+        fr = context.union(n for n in freeze if n in DRAWS)
         print("field on frozen parts before masking: max %.2f cm (masked to 0)" % np.hypot(fdx, fdy)[fr].max())
     if (armw > 0.01).any():
         print("field on arm-weighted verts before masking: max %.2f cm" % np.hypot(fdx, fdy)[armw > 0.01].max())

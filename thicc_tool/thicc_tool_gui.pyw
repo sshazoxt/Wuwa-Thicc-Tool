@@ -3,7 +3,7 @@ from html import escape
 import codecs,os,sys,json,subprocess,tempfile,pickle,time,shutil,traceback,struct,importlib
 from pathlib import Path
 os.environ['QT_API']='pyside6'
-from PySide6.QtCore import Qt,QTimer,QUrl
+from PySide6.QtCore import Qt,QTimer,QUrl,QItemSelectionModel
 from PySide6.QtGui import QDesktopServices,QColor,QTextCursor
 from PySide6.QtWidgets import *
 HERE=os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +52,32 @@ class Table(QTableWidget):
     keys=['name','label','visibility','role','anatomy','region','zmin','zmax','verts']
     def __init__(self):
         super().__init__(0,9); self.setHorizontalHeaderLabels(['Part','Label','Status','Role','Anatomy','Region','Z min','Z max','Vertices']); self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.verticalHeader().hide(); self.setAlternatingRowColors(True); self.setShowGrid(False); self.verticalHeader().setDefaultSectionSize(34); self.setColumnWidth(0,230); self.setColumnWidth(1,130); self.setColumnWidth(2,86); self.setColumnWidth(3,92); self.setColumnWidth(4,78); self.dark=True; self.setMouseTracking(True)
+    def mousePressEvent(self, event):
+        # Explicit Ctrl+click toggle; leave Shift and ordinary selection to Qt.
+        if (event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid():
+                self._ctrl_row_press = True
+                model = self.selectionModel()
+                flags = QItemSelectionModel.SelectionFlag
+                model.setCurrentIndex(index, flags.NoUpdate)
+                model.select(index, flags.Toggle | flags.Rows)
+                event.accept()
+                return
+        self._ctrl_row_press = False
+        super().mousePressEvent(event)
+    def mouseReleaseEvent(self, event):
+        if getattr(self, '_ctrl_row_press', False) and event.button() == Qt.MouseButton.LeftButton:
+            self._ctrl_row_press = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+    def mouseDoubleClickEvent(self, event):
+        if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
     def selection(self): return sorted({i.row() for i in self.selectedIndexes()})
     def get_children(self): return list(range(self.rowCount()))
     def delete(self,*a): self.setRowCount(0)
@@ -89,7 +115,7 @@ Select a mod folder containing its INI and Meshes. Click Analyze.
 Skin deforms; Clothing follows the body; Frozen remains unchanged.
 Anatomy is independent of role and visibility. Correct roles manually, then Save and analyze.
 Double-click Part to view its geometry; double-click Label to rename a part. Show / hide changes the INI; refresh the game with F10.
-Select parts and click View 3D geometry to inspect them.
+Select parts and click View 3D geometry to inspect them. Ctrl+click toggles individual rows; Shift+click selects a range. Left drag rotates, right drag pans, and the wheel zooms. Screenshot saves a high-resolution PNG.
 Preview computes deformation without replacing geometry buffers. Apply writes buffers; Restore recovers .orig geometry, not the INI.
 1.0 is the base contribution; 0 disables that contribution. Blank measurements are automatic. Only Normal bounce is implemented.
 Library stores folder references, not copies. Analyze library runs diagnostics sequentially with each mod's saved settings. Cancel stops the batch; completed logs remain.
@@ -98,7 +124,7 @@ Keep backups of your mods."""
 class App(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.6 · ARF diagnostic'); self.resize(1500,900); self.setMinimumSize(1000,650)
-        self.preview_positions=None; self.busy=False; self.job=None; self.analysis=None; self.analyzed_mod=None; self.anatomy=set(); self.auto_lm={}; self.pending_mod=None; self.plot=None; self._populate_viewer=None; self._closing=False; self.library=[]; self.batch=None; self.library_last_dir=""
+        self.preview_positions=None; self.busy=False; self.job=None; self.analysis=None; self.analyzed_mod=None; self.anatomy=set(); self.auto_lm={}; self.pending_mod=None; self.plot=None; self._populate_viewer=None; self._viewer_has_geometry=False; self._closing=False; self.library=[]; self.batch=None; self.library_last_dir=""
         self._build(); self._load_settings()
     def _build(self):
         root=QWidget(); self.setCentralWidget(root); self.main=root; l=QVBoxLayout(root); l.setContentsMargins(16,12,16,12); l.setSpacing(10)
@@ -123,7 +149,7 @@ class App(QMainWindow):
         row=QHBoxLayout(); cl.addLayout(row); self.viewer_mode=combo(['Current','Original','Preview','Comparison','Displacement']); row.addWidget(self.viewer_mode.w); self.wire=check('Wireframe'); row.addWidget(self.wire.w); button(row,'View 3D geometry',self.view3d).setObjectName('primary')
         self.viewer_status=QLabel("3D engine: starting…"); self.viewer_status.setWordWrap(True); cl.addWidget(self.viewer_status)
         self.viewhost=QFrame(); self.viewhost.setObjectName("viewerHost"); self.viewlayout=QVBoxLayout(self.viewhost); self.viewlayout.setContentsMargins(0,0,0,0); self.placeholder=QLabel('Analyze a mod and select one or more parts.'); self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter); self.placeholder.setWordWrap(True); self.viewlayout.addWidget(self.placeholder,1); cl.addWidget(self.viewhost,1)
-        row=QHBoxLayout(); cl.addLayout(row); button(row,'Front',lambda:self.camera('xz')); button(row,'Side',lambda:self.camera('yz')); button(row,'Perspective',lambda:self.camera('iso')); button(row,'Fit',lambda:self.camera('fit'))
+        row=QHBoxLayout(); cl.addLayout(row); button(row,'Front',lambda:self.camera('xz')); button(row,'Side',lambda:self.camera('yz')); button(row,'Perspective',lambda:self.camera('iso')); button(row,'Fit',lambda:self.camera('fit')); button(row,'Screenshot',self.viewer_screenshot).setToolTip('Save a high-resolution PNG of the current 3D view.')
         right=QTabWidget(); right.setObjectName("inspector"); split.addWidget(right); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(QLabel('Base shape')); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}
         for k,t in SLIDERS:
             sh.addWidget(QLabel(t)); row=QHBoxLayout(); sh.addLayout(row); slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus); slider.setRange(0,500 if k=='hips' else 200); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,5 if k=='hips' else 2); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1); slider.setValue(100); slider.valueChanged.connect(lambda v,s=spin:s.setValue(v/100)); spin.valueChanged.connect(lambda v,s=slider:s.setValue(round(v*100))); row.addWidget(slider,1); row.addWidget(spin); self.amount[k]=Var(spin)
@@ -165,7 +191,7 @@ class App(QMainWindow):
         measures=QWidget(); ml=QFormLayout(measures); right.addTab(measures,'Measurements'); self.lm={}
         for k,t in LANDMARKS: self.lm[k]=Var(QLineEdit()); self.lm[k].w.setPlaceholderText('Automatic'); ml.addRow(t,self.lm[k].w)
         self.warn=Label(''); self.warn.setWordWrap(True); ml.addRow(self.warn); split.setSizes([520,590,330]); right.setMinimumWidth(275)
-        logbox=QWidget(); logbox.setObjectName("workspacePanel"); logl=QVBoxLayout(logbox); logl.setContentsMargins(12,8,12,10); row=QHBoxLayout(); logl.addLayout(row); log_title=QLabel('Diagnostic log'); log_title.setObjectName('sectionHeading'); row.addWidget(log_title); row.addStretch(); button(row,'Copy',lambda:QApplication.clipboard().setText(self.log.toPlainText())); button(row,'Clear',lambda:self.log.clear()); self.log=QPlainTextEdit(); self.log.setObjectName('diagnosticLog'); self.log.setReadOnly(True); logl.addWidget(self.log); vertical.addWidget(logbox); vertical.setSizes([650,180]); self.status=Label('Select a WWMI mod folder.'); self.status.setObjectName('footer'); l.addWidget(self.status)
+        logbox=QWidget(); logbox.setObjectName("workspacePanel"); logl=QVBoxLayout(logbox); logl.setContentsMargins(12,8,12,10); row=QHBoxLayout(); logl.addLayout(row); log_title=QLabel('Diagnostic log'); log_title.setObjectName('sectionHeading'); row.addWidget(log_title); row.addStretch(); button(row,'Copy',lambda:QApplication.clipboard().setText(self.log.toPlainText())); button(row,'Clear',lambda:self.log.clear()); button(row,'Experiments',self.run_experiment); self.log=QPlainTextEdit(); self.log.setObjectName('diagnosticLog'); self.log.setReadOnly(True); logl.addWidget(self.log); vertical.addWidget(logbox); vertical.setSizes([650,180]); self.status=Label('Select a WWMI mod folder.'); self.status.setObjectName('footer'); l.addWidget(self.status)
         for title,items in [('File',[('Browse folder',self.pick),('Open folder',self.open_folder),('Exit',self.close)]),('Tools',[('Analyze',self.analyze),('Show / hide',self.toggle_visibility)]),('Help',[('Manual',self.manual),('About',self.about)])]:
             menu=self.menuBar().addMenu(title)
             for text,fn in items: menu.addAction(text,fn)
@@ -273,6 +299,27 @@ class App(QMainWindow):
         elif mode=='xz':self.plot.view_xz()
         else:self.plot.view_yz()
         self.plot.render()
+    def viewer_screenshot(self):
+        if self.busy: return
+        if self.plot is None or not self._viewer_has_geometry:
+            return messagebox.showinfo('Screenshot','Display geometry first.')
+        name = Path(self.analyzed_mod or 'Thicc Tool').name
+        default = str(Path.home() / (name + '_' + self.viewer_mode.get() + '_' + time.strftime('%Y%m%d_%H%M%S') + '.png'))
+        path, _ = QFileDialog.getSaveFileName(self, 'Save 3D screenshot', default, 'PNG image (*.png)')
+        if not path: return
+        if not path.lower().endswith('.png'): path += '.png'
+        try:
+            # Preserve the viewport aspect ratio and camera; no window resize.
+            import math
+            w, h = self.plot.window_size
+            scale = max(1, math.ceil(2400 / max(1, int(w), int(h))))
+            self.plot.render()
+            image = self.plot.screenshot(path, scale=scale, return_img=True)
+            self.say(f'[Viewer] Screenshot saved: {path} ({image.shape[1]} x {image.shape[0]})\n')
+        except Exception:
+            self.say('[Viewer] Screenshot failed:\n' + traceback.format_exc())
+            messagebox.showerror('Screenshot','Could not save the image. Check the log.')
+
     def initialize_viewer(self):
         """Create and warm the embedded graphics context once, on the Qt thread."""
         if self.plot is not None:return
@@ -282,6 +329,8 @@ class App(QMainWindow):
         plot=None; widget=None
         try:
             plot=QtInteractor(parent=self.viewhost, auto_update=False)
+            # PyVista's custom trackball maps right drag to pan, wheel to zoom.
+            plot.enable_custom_trackball_style(left='rotate', middle='pan', right='pan')
             widget=plot.interactor
             # Keep the native rendering widget embedded, never a top-level window.
             if widget.parentWidget() is not self.viewhost:
@@ -358,7 +407,9 @@ class App(QMainWindow):
             try:
                 # Retry initialization only if startup warm-up failed.
                 self.initialize_viewer()
+                self._viewer_has_geometry=False
                 self._populate_viewer(self.plot,mod,ini,names,wire=wire,mode=mode,preview_positions=preview)
+                self._viewer_has_geometry=True
                 self.plot.render()
                 elapsed=time.monotonic()-started
                 self.viewer_status.setText(f'3D engine: ready | {elapsed:.2f} s')
@@ -369,6 +420,59 @@ class App(QMainWindow):
                 messagebox.showerror('Viewer','Could not display geometry. Check the log.')
             finally:self.busy=False
         QTimer.singleShot(50,load)
+    def run_experiment(self):
+        if self.busy:return
+        from experiment_runner import discover, invocation
+        root=Path(HERE).parent/'experiments'
+        try: scripts=discover(root)
+        except Exception:return messagebox.showerror('Experiments',traceback.format_exc())
+        if not scripts:return messagebox.showinfo('Experiments',f'Place Python scripts in {root}')
+        names=[str(p.relative_to(root)) for p in scripts]
+        name,ok=QInputDialog.getItem(self,'Experiments','Select a trusted local diagnostic script:',names,0,False)
+        if not ok:return
+        script=scripts[names.index(name)]
+        m=self.mod.get().strip()
+        m=os.path.abspath(m) if m else ''
+        ini=''
+        if m and os.path.isdir(m):
+            try:ini=os.path.abspath(te.find_ini(m))
+            except (Exception,SystemExit):pass
+        work=tempfile.mkdtemp(prefix='thicc-experiment-'); log=os.path.join(work,'experiment.log')
+        try:
+            cmd,env=invocation(script,root,HERE,m,ini)
+            with open(log,'wb') as f:
+                proc=subprocess.Popen(cmd,cwd=str(root),env=env,stdout=f,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        except Exception:
+            shutil.rmtree(work,ignore_errors=True); return messagebox.showerror('Experiments',traceback.format_exc())
+        self.busy=True; self.main.setEnabled(False); self.menuBar().setEnabled(False)
+        self.status.setText('Experiment working…'); self.say(f'\n===== EXPERIMENT: {name} =====\nMod: {m or "(none)"}\n')
+        self.job=dict(proc=proc,work=work,log=log,start=time.monotonic(),offset=0,decoder=codecs.getincrementaldecoder('utf-8')(errors='replace'),cancelled=False,mode='experiment',name=name)
+        self.overlay=QDialog(self); self.overlay.setWindowTitle('Experiments'); self.overlay.setWindowModality(Qt.WindowModality.ApplicationModal)
+        layout=QVBoxLayout(self.overlay); layout.addWidget(QLabel(name)); self.elapsed=QLabel('0 s'); layout.addWidget(self.elapsed)
+        cancel=QPushButton('Cancel experiment'); layout.addWidget(cancel)
+        def stop():
+            j=self.job
+            if j and j['mode']=='experiment' and j['proc'].poll() is None:
+                j['cancelled']=True; j['proc'].terminate(); cancel.setEnabled(False)
+        cancel.clicked.connect(stop); self.overlay.reject=stop; self.overlay.show()
+        self.timer=QTimer(self); self.timer.timeout.connect(self.poll_experiment); self.timer.start(100)
+
+    def poll_experiment(self):
+        j=self.job; finished=j['proc'].poll() is not None
+        with open(j['log'],'rb') as stream:
+            stream.seek(j['offset']); data=stream.read(); j['offset']=stream.tell()
+        chunk=j['decoder'].decode(data,final=finished)
+        if chunk:self.say(chunk)
+        elapsed=time.monotonic()-j['start']; self.elapsed.setText(f'{elapsed:.1f} s elapsed')
+        if not finished:return
+        self.timer.stop(); self.overlay.hide(); self.overlay.deleteLater()
+        self.main.setEnabled(True); self.menuBar().setEnabled(True); self.job=None; self.busy=False
+        status='Cancelled' if j['cancelled'] else ('Finished' if j['proc'].returncode==0 else 'Error')
+        from experiment_runner import completion_message
+        self.say(completion_message(j['name'], status, elapsed, j['proc'].returncode))
+        self.status.setText(f'{j["name"]} — {status.lower()} — {elapsed:.2f} s')
+        shutil.rmtree(j['work'],ignore_errors=True)
+
     def start_analysis(self,m,done,force=False): self.launch(m,'diagnose',done,force=force)
     def run_task(self,mode,done=None,save=True):
         if self.busy:return

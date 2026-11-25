@@ -1,0 +1,8 @@
+# Morphology isolation experiments 018
+Requires 017 (imports preview_no_seam_guard.py). Copy the experiments directory into the repository root. No production changes. Use saved settings. All A/B runs disable Seam Guard and use temporary copies. Close each viewer to finish. 
+- isolated_morphology_fields.py: original, combined and four slider-only cases; zero other three sliders; calibration reruns in each case, so this is not an additive decomposition.
+- hip_calibration_ab.py: identical settings, zero correction Hc versus normal; removes the calibrated hip field, not merely numerical iterations. Reports reference-frame target and realized outline with final field settings (including directional/rounding). 
+- canonical_reference_ab.py: heuristic inactive candidates with >=40% bidirectional vertex coincidence. If frozen candidates are found, compare saved roles, all candidates moving, and reduced reference with identical moving roles to the all-moving case. Only temporary config and in-memory run function modified. The reference list affects measurements/axis/root/calibration/rounding, then original skin arrays are restored before later geometry phases. Candidate matching is not proof of mutual exclusivity. Compare the all-moving and canonical cases, not saved vs canonical, for causal isolation. Manual landmark overrides remain honored. No candidate means no A/B. 
+- skin_surface_bands.py: original/current point-to-triangle proximity sampled at seven points per triangle, area weighted, by original Z; current means Position.buf on disk. Not exact collision detection. 
+- _morph_ab.py: common helper, not an experiment; if selected it explains this. 
+Source anchors checked against 013/014 engine. No Windows or real mesh execution available here. 

@@ -24,9 +24,9 @@ def section_signature(tt, zz, h):
     center=np.average(seg.mean(1),axis=0,weights=length)
     return dict(z=float(zz/h),center=(center/h).tolist(),width=(np.ptp(xy,axis=0)/h).tolist(),length=float(length.sum()/h),contours=contours[:8],count=k)
 
-def describe(p,t,h,debug=False,vertex_ids=None):
+def describe(p,t,h,debug=False,vertex_ids=None,local_faces=None,points=None):
     ids = np.unique(t) if vertex_ids is None else vertex_ids
-    inv=np.searchsorted(ids,t); q=p[ids]
+    inv=np.searchsorted(ids,t) if local_faces is None else local_faces; q=p[ids] if points is None else points
     # Weld duplicate seam positions for analysis only, never edit the source.
     _, w=np.unique(np.round(q/max(h,1e-9),5),axis=0,return_inverse=True)
     a=w[inv]; x=a.ravel(); y=a[:,[1,2,0]].ravel()

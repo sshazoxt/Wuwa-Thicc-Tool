@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def _island_evidence(triangles):
+def _island_evidence(triangles, local_geometry=None):
     """Return connected triangle island count and dominant area fraction.
 
     Uses shared vertex indices, not vertex coordinates, so coincident but
@@ -15,7 +15,7 @@ def _island_evidence(triangles):
     """
     triangles=np.asarray(triangles,dtype=np.int64).reshape(-1,3)
     if not len(triangles): return 0,0.0
-    vertices, inv=np.unique(triangles,return_inverse=True)
+    vertices, inv=np.unique(triangles,return_inverse=True) if local_geometry is None else local_geometry
     faces=inv.reshape(-1,3)
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
@@ -26,7 +26,7 @@ def _island_evidence(triangles):
 
 
 
-def welded_island_evidence(P, triangles, relative_tolerance=1e-7):
+def welded_island_evidence(P, triangles, relative_tolerance=1e-7, local_geometry=None, points=None):
     """Diagnostic-only connectivity after welding coincident vertex positions.
 
     Does not modify buffers, triangle indices, or role decisions. The tiny
@@ -35,8 +35,8 @@ def welded_island_evidence(P, triangles, relative_tolerance=1e-7):
     faces = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
     if not len(faces):
         return 0, 0.0
-    vertex_ids, inverse = np.unique(faces, return_inverse=True)
-    points = np.asarray(P)[vertex_ids]
+    vertex_ids, inverse = np.unique(faces, return_inverse=True) if local_geometry is None else local_geometry
+    points = np.asarray(P)[vertex_ids] if points is None else points
     extent = np.ptp(points, axis=0)
     scale = max(float(np.max(extent)), 1e-9)
     tolerance = max(scale * relative_tolerance, 1e-10)

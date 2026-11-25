@@ -63,7 +63,7 @@ def hashes(mod,ini):
     loader=[ast.dump(n,include_attributes=False) for n in ast.walk(main) if isinstance(n,ast.FunctionDef) and n.name in ('find_ini','parse_draws','load_bones','verts','tris') or isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='DRAW_RE' for t in n.targets)]
     detectors=[('env',env),('fusion',det),('loader',loader)]
     detectors += [(p.name,p) for p in sorted((ROOT/'detection002').glob('*.py')) if p.name!='fusion.py']
-    detectors += [(n,ROOT/n) for n in ('wwmi_role_evidence.py','wwmi_structure.py','detection_cache.py')]
+    detectors += [(n,ROOT/n) for n in ('wwmi_role_evidence.py','wwmi_structure.py','detection_cache.py','analysis_context.py')]
     # Full snapshot includes all engine modules, not UI or viewer.
     engine=[('env',env)]+[(p.name,p) for p in sorted(ROOT.glob('*.py')) if p.name!='viewer3d.py']
     return dict(detectors_hash=digest(detectors),classifier_hash=digest([('classifier',cls)]),
@@ -103,7 +103,7 @@ class Tee:
     def __getattr__(self,k): return getattr(self.stream,k)
 
 
-def detection(P,faces,comp,ini,meta,bones_path,load_bones):
+def detection(P,faces,comp,ini,meta,bones_path,load_bones,context=None):
     global LAST_SOURCE,CACHEABLE
     from detection002.fusion import evaluate,classify_part
     mod=Path(ini).parent; path=mod/'thicc_detection_cache.json'; start=time.perf_counter()
@@ -132,7 +132,7 @@ def detection(P,faces,comp,ini,meta,bones_path,load_bones):
         return parts
     print('[Cache] Detection MISS:', 'forced' if FORCE else 'missing, changed or invalid')
     tee=Tee(sys.stdout)
-    with contextlib.redirect_stdout(tee): parts=evaluate(P,faces,comp,ini,meta,bones_path,load_bones)
+    with contextlib.redirect_stdout(tee): parts=evaluate(P,faces,comp,ini,meta,bones_path,load_bones,context=context)
     console=tee.buffer.getvalue(); seconds=time.perf_counter()-start
     LAST_SOURCE='real'
     unexpected=any(line.startswith(('[Detection] indexed ', '[Detection] welded ', '[Detection] shape ', '[Detection] individual Stickman ')) for line in console.splitlines())

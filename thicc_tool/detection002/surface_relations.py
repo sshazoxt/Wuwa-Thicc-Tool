@@ -6,8 +6,8 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 
-def topology(P,t,eps,debug=True,vertex_ids=None):
-    ids=np.unique(t) if vertex_ids is None else vertex_ids; q=P[ids]; f=np.searchsorted(ids,t)
+def topology(P,t,eps,debug=True,vertex_ids=None,local_faces=None,points=None):
+    ids=np.unique(t) if vertex_ids is None else vertex_ids; q=P[ids] if points is None else points; f=np.searchsorted(ids,t) if local_faces is None else local_faces
     pairs=cKDTree(q).query_pairs(eps,output_type='ndarray')
     _,lab=connected_components(coo_matrix((np.ones(len(pairs)),(pairs[:,0],pairs[:,1])),shape=(len(q),len(q))).tocsr(),directed=False)
     _,first=np.unique(lab,return_index=True); q=q[first]; f=lab[f]
@@ -53,13 +53,16 @@ def conditions(ini,meta):
     return result
 
 
-def report(P,draws,L,bi,bw,unified,ini=None,meta=None,debug=True):
+def report(P,draws,L,bi,bw,unified,ini=None,meta=None,debug=True,context=None):
     span=float(L['crotch']-L['ankle']); print('\n===== SURFACE RELATIONS (phase 1.6; diagnostic only) =====')
     if not np.isfinite(span) or span<=0:return {},[]
     eps=max(span*1e-5,1e-7); near=.035*span; cond=conditions(ini,meta or {}); records=[]; top={}; pairs=[]
+    from analysis_context import AnalysisContext
+    context=context or AnalysisContext(P,{n:t for n,t,_ in draws})
     for name,t,role in draws:
         if not len(t):continue
-        r=topology(P,t,eps,debug=debug)
+        part=context.part(name)
+        r=topology(P,t,eps,debug=debug,vertex_ids=part.vertex_ids,local_faces=part.local_triangles,points=part.points)
         if r is None:continue
         s,n,h,b,nm,loops,deg,area=r; lo,hi=np.min(s,axis=0),np.max(s,axis=0)
         if debug:
@@ -76,9 +79,9 @@ def report(P,draws,L,bi,bw,unified,ini=None,meta=None,debug=True):
             if max(p.mean(),q.mean())<.20:continue
             # Local overlap region, not whole-draw bone distributions.
             low=np.maximum(lo,l)-near; high=np.minimum(hi,k)+near
-            def regional(t):
-                ids=np.unique(t); pts=P[ids]; return ids[((pts>=low)&(pts<=high)).all(1)]
-            ia,ib=regional(t),regional(u); bone='n/a'; bone_score=None
+            def regional(name):
+                part=context.part(name); ids=part.vertex_ids; pts=part.points; return ids[((pts>=low)&(pts<=high)).all(1)]
+            ia,ib=regional(a),regional(b); bone='n/a'; bone_score=None
             if len(ia) and len(ib):
                 A,C,W=bone_cloud(P,ia,bi,bw); B,D,V=bone_cloud(P,ib,bi,bw)
                 if unified:

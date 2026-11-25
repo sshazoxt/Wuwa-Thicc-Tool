@@ -65,6 +65,45 @@ def sections(ini):
             elif current is not None and s:current.append((i,s))
     return out
 
+def standalone_guards(sec):
+    """Only bypass unknown external, whole-component gates in offline reconstruction.
+    A local declaration or key binding always takes precedence. Never bypass a
+    branch with alternatives or a predicate that mixes local and external state.
+    """
+    local=set()
+    for name,lines in sec:
+        if name=='constants' or name.startswith('key'):
+            for _,line in lines:
+                a=ASSIGN.match(line)
+                if a: local.add(a.group(1).lower())
+                if name.startswith('key'): local.update(v.lower() for v in VAR.findall(line))
+    result={}
+    for name,lines in sec:
+        if not re.fullmatch(r'textureoverridecomponent\d+',name): continue
+        stack=[]; blocks={}; draws=[]; valid=True
+        for lineno,line in lines:
+            m=re.match(r'^(if|elif|else|endif)\b\s*(.*)$',line,re.I)
+            if m:
+                cmd,cond=m.group(1).lower(),m.group(2)
+                if cmd=='if':
+                    if not stack: blocks[lineno]=[cond,False]
+                    stack.append(lineno)
+                elif not stack: valid=False; break
+                elif cmd=='endif': stack.pop()
+                elif len(stack)==1: blocks[stack[0]][1]=True
+            elif re.match(r'drawindexed\s*=',line,re.I):
+                draws.append(stack[0] if stack else None)
+        if not valid or stack or not draws or len(set(draws))!=1 or draws[0] is None: continue
+        line=draws[0]; cond,alternatives=blocks[line]
+        variables={v.lower() for v in VAR.findall(cond)}
+        # Simple external scalar predicate only; no mixed expressions or calls.
+        if alternatives or len(variables)!=1 or variables & local: continue
+        v=next(iter(variables))
+        if not v.startswith('$\\'): continue
+        if not re.fullmatch(r'!?\s*'+re.escape(v)+r'(?:\s*(?:==|!=|<=|>=|<|>)\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+))?',cond.strip(),re.I): continue
+        result[line]=cond
+    return result
+
 def reconstruct(ini,meta):
     """Resolve default constants, Present assignments and component draw guards.
     Unknown expressions do not silently select geometry. Duplicate section names
@@ -72,6 +111,7 @@ def reconstruct(ini,meta):
     """
     sec=sections(ini); by={}
     for name,lines in sec:by.setdefault(name,[]).append(lines)
+    guards=standalone_guards(sec)
     env={}; active=set(); uncertain=set(); notes=set(); mapped={int(v['line']):n for n,v in meta.items()}; visited_draws=set()
     def execute(lines,outer=True,depth=0):
         if depth>12:notes.add('CommandList recursion limit');return
@@ -82,6 +122,8 @@ def reconstruct(ini,meta):
                 cmd,cond=m.group(1).lower(),m.group(2)
                 if cmd=='if':
                     v=tri(expression(cond,env)) if state is not False else False
+                    if v is UNKNOWN and lineno in guards:
+                        v=True; notes.add('Standalone external component guard assumed active: '+guards[lineno])
                     stack.append([state,v]);state=both(state,v)
                 elif not stack:notes.add('Unbalanced condition at line '+str(lineno))
                 elif cmd=='endif':state=stack.pop()[0]
@@ -136,12 +178,14 @@ def coverage(P,ids,lo,hi):
         out[name]=bool(len(q)>=20 and (name not in ('feet','calves','thighs') or ((q[:,0]<0).sum()>=10 and (q[:,0]>0).sum()>=10)))
     return out
 
-def diagnose(P,faces,comp,ini,meta,evidence,bones_path,load_bones,reference,blocked=(), anatomy=(), effective_skin=None):
+def diagnose(P,faces,comp,ini,meta,evidence,bones_path,load_bones,reference,blocked=(), anatomy=(), effective_skin=None,context=None):
     """One conditional invocation; returns conservative anatomical recovery candidates."""
     from scipy.spatial import cKDTree
     from detection002 import skeleton
-    start=time.perf_counter(); V={n:np.unique(t) for n,t in faces.items()}
-    def union(names):return np.unique(np.concatenate([V[n] for n in names])) if names else np.empty(0,dtype=np.int64)
+    from analysis_context import AnalysisContext
+    context=context or AnalysisContext(P,faces)
+    start=time.perf_counter(); V={n:context.vertex_ids(n) for n in faces}
+    def union(names):return context.union(names)
     body=union([n for n in V if comp[n]>=3]); face=union([n for n in V if comp[n]==2]); skin_names=[n for n in V if comp[n]>=3 and evidence[n]['role']=='skin'] if effective_skin is None else list(effective_skin); skin=union(skin_names)
     if not len(body):print('[ARF] Skipped: no body candidates.');return
     baseline=union([n for n in reference['active'] if comp[n]>=3]); baseline=baseline if len(baseline) else body
@@ -153,7 +197,7 @@ def diagnose(P,faces,comp,ini,meta,evidence,bones_path,load_bones,reference,bloc
     import skeleton as engine_skeleton
     bi=bw=None
     try:
-        bi,bw=load_bones(bones_path,len(P)); vg=os.path.join(bones_path,'BlendRemapVertexVG.buf')
+        bi,bw=context.bones(bones_path,len(P),load_bones); vg=os.path.join(bones_path,'BlendRemapVertexVG.buf')
         if not (os.path.isfile(vg) and os.path.getsize(vg)==len(P)*bi.shape[1]*2): bi=bw=None
     except Exception: bi=bw=None
     def bone_map(names):
@@ -200,7 +244,7 @@ def diagnose(P,faces,comp,ini,meta,evidence,bones_path,load_bones,reference,bloc
     z=(P[refids,2]-zlo)/h; labels=np.select([z<.14,z<.32,z<.49,z<.60,z<.72,z<.88],['feet','calves','thighs','pelvis','waist','torso'],default='head_neck')
     try:
         import os
-        bi,bw=load_bones(bones_path,len(P)); vg=os.path.join(bones_path,'BlendRemapVertexVG.buf')
+        bi,bw=context.bones(bones_path,len(P),load_bones); vg=os.path.join(bones_path,'BlendRemapVertexVG.buf')
         if not (os.path.isfile(vg) and os.path.getsize(vg)==len(P)*bi.shape[1]*2):raise ValueError('Local/unknown bone namespace; spatial fallback only')
         mask=np.zeros(len(P),bool);mask[refids]=True; fm=np.zeros(len(P),bool);fm[np.intersect1d(face,refids)]=True
         with contextlib.redirect_stdout(io.StringIO()):
