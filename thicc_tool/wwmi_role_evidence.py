@@ -17,23 +17,11 @@ def _island_evidence(triangles):
     if not len(triangles): return 0,0.0
     vertices, inv=np.unique(triangles,return_inverse=True)
     faces=inv.reshape(-1,3)
-    parent=np.arange(len(vertices),dtype=np.int64)
-    rank=np.zeros(len(vertices),dtype=np.int8)
-    def root(x):
-        while parent[x]!=x:
-            parent[x]=parent[parent[x]]
-            x=parent[x]
-        return x
-    def union(a,b):
-        a=root(int(a));b=root(int(b))
-        if a==b:return
-        if rank[a]<rank[b]:a,b=b,a
-        parent[b]=a
-        if rank[a]==rank[b]:rank[a]+=1
-    for a,b,c in faces:
-        union(a,b);union(a,c)
-    roots=np.fromiter((root(int(x)) for x in faces[:,0]),dtype=np.int64,count=len(faces))
-    _,counts=np.unique(roots,return_counts=True)
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    a=faces.ravel(); b=faces[:,[1,2,0]].ravel()
+    _,labels=connected_components(coo_matrix((np.ones(len(a),dtype=np.int32),(a,b)),shape=(len(vertices),len(vertices))).tocsr(),directed=False)
+    _,counts=np.unique(labels[faces[:,0]],return_counts=True)
     return len(counts),float(counts.max()/len(faces))
 
 

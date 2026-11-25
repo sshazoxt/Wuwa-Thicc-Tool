@@ -82,7 +82,7 @@ def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
                 d.update(veto_auto_skin=veto,index_fragmentation_rescued=bool(rescue)); e['topology']=-1. if veto else 0.
         except Exception as ex: print('[Detection] welded',n,ex)
         try:
-            sh=shape_recognition.describe(P,faces[n],extent); label=sh['label']; d['shape']={k:sh[k] for k in ('label','islands','dominant','surface')}; d['shape']['dominant_profile']=sh['profiles'][0] if sh['profiles'] else None
+            sh=shape_recognition.describe(P,faces[n],extent,debug=verbose,vertex_ids=V[n]); label=sh['label']; d['shape']={k:sh[k] for k in ('label','islands','dominant','surface')}; d['shape']['dominant_profile']=sh['profiles'][0] if sh['profiles'] else None
             e['shape']=.5 if label=='candidato volumen inferior' else -.5 if label.startswith('fragmentado') else 0.
         except Exception as ex: print('[Detection] shape',n,ex)
     print('[Detection] Topology and shape finished.',flush=True)
@@ -95,29 +95,33 @@ def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
         v=union(ns); mask=np.zeros(N,bool); mask[v]=True; fm=np.zeros(N,bool); fm[np.intersect1d(faceids,v)]=True
         with contextlib.redirect_stdout(Quiet()):
             r,s=skeleton.label_bones(P,bi,bw,H,vertex_mask=mask,triangles=triangles(ns),face_mask=fm if anchor else None)
-        rw=skeleton.region_weights(bi,bw,r); seeds=s['seeds']; C=s['centroid']
+        # Individual draws need weights only on their referenced vertices.
+        rw=skeleton.region_weights(bi,bw,r) if anchor else skeleton.region_weights(bi[v],bw[v],r); seeds=s['seeds']; C=s['centroid']
         good=all(seeds.get(k) is not None for k in ('foot_r','foot_l','head','hand_r','hand_l'))
         if good:
-            good=bool(C[seeds['foot_r'],2]<.2*H and C[seeds['foot_l'],2]<.2*H and C[seeds['head'],2]>.75*H and min(abs(C[seeds['hand_r'],0]),abs(C[seeds['hand_l'],0]))>.08*H and all(rw[k][v].sum()>100 for k in ('leg_l','leg_r','arm_l','arm_r')))
+            good=bool(C[seeds['foot_r'],2]<.2*H and C[seeds['foot_l'],2]<.2*H and C[seeds['head'],2]>.75*H and min(abs(C[seeds['hand_r'],0]),abs(C[seeds['hand_l'],0]))>.08*H and all((rw[k][v] if anchor else rw[k]).sum()>100 for k in ('leg_l','leg_r','arm_l','arm_r')))
         return rw,s,good
     global_st=None
     if bi is not None and H>0:
         for n in body:
             try:
-                rw,s,good=stick([n]); fractions={k:float(x[V[n]].mean()) for k,x in rw.items()}
+                rw,s,good=stick([n]); fractions={k:float(x.mean()) for k,x in rw.items()}
                 details[n].update(stickman_complete=good,stickman_regions=fractions,stickman_seeds=s['seeds']); evidence[n]['stickman']=float(good)
             except Exception as ex: print('[Detection] individual Stickman',n,ex)
         if unified and filtered:
             try: global_st=stick(filtered,True)
             except Exception as ex: print('[Detection] filtered Stickman',ex)
     print('[Detection] Individual Stickman finished. Namespace:', 'global' if unified else 'local/unknown',flush=True)
+    scoped_cache = []
     def scoped_bones():
         if unified or bi is None: return bi
+        if scoped_cache: return scoped_cache[0]
         vc=np.full(N,-1,dtype=np.int64)
         for n in names:
             if np.any((vc[V[n]]!=-1)&(vc[V[n]]!=comp[n])): raise ValueError('Shared vertices across local namespaces')
             vc[V[n]]=comp[n]
-        return bi+(vc[:,None]+1)*(int(bi.max())+1)
+        scoped_cache.append(bi+(vc[:,None]+1)*(int(bi.max())+1))
+        return scoped_cache[0]
     def surfaces(ns):
         v=union(ns); t=triangles(ns)
         if global_st and global_st[2]:
@@ -141,11 +145,14 @@ def evaluate(P, faces, comp, ini, meta, bones_path, load_bones, verbose=False):
         except ValueError: b=w=None; u=False
         if b is None: b=np.zeros((N,1),dtype=np.int64); w=np.zeros((N,1)); u=False
         ds=[(n,faces[n],'unclassified') for n in body]
-        with contextlib.redirect_stdout(Quiet()): out=surface_evidence.calculate(P,ds,L,b,w,u,ini,meta,independent=True)
+        with contextlib.redirect_stdout(Quiet()): out=surface_evidence.calculate(P,ds,L,b,w,u,ini,meta,independent=True,debug=verbose)
         return out or {},L
     all_surface={}; raw_surface={}
     for label,ns in [('all',body),('raw',raw)]:
         if not ns: continue
+        if label=='raw' and not verbose and all(all_surface.get(n) is not None for n in body):
+            print('[Detection] Surface raw skipped: all draws have ALL evidence.',flush=True)
+            continue
         if label=='raw' and set(ns)==set(body) and all_surface:
             raw_surface=all_surface; continue
         try:

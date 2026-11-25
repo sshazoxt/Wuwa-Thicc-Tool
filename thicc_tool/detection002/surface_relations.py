@@ -6,8 +6,8 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 
-def topology(P,t,eps):
-    ids,inv=np.unique(t,return_inverse=True); q=P[ids]; f=inv.reshape(-1,3)
+def topology(P,t,eps,debug=True,vertex_ids=None):
+    ids=np.unique(t) if vertex_ids is None else vertex_ids; q=P[ids]; f=np.searchsorted(ids,t)
     pairs=cKDTree(q).query_pairs(eps,output_type='ndarray')
     _,lab=connected_components(coo_matrix((np.ones(len(pairs)),(pairs[:,0],pairs[:,1])),shape=(len(q),len(q))).tocsr(),directed=False)
     _,first=np.unique(lab,return_index=True); q=q[first]; f=lab[f]
@@ -21,10 +21,13 @@ def topology(P,t,eps):
     two=starts[cnt==2]; a=order[two]//3; b=order[two+1]//3
     angles=np.degrees(np.arccos(np.clip(np.sum(normals[a]*normals[b],axis=1),-1,1)))
     hist=np.histogram(angles,bins=[0,15,30,45,90,181])[0]; hist=hist/max(1,hist.sum())
-    boundary=edges[order[starts[cnt==1]]]; loops=0
-    if len(boundary):
-        nodes,iv=np.unique(boundary,return_inverse=True); e=iv.reshape(-1,2); _,g=connected_components(coo_matrix((np.ones(len(e)),(e[:,0],e[:,1])),shape=(len(nodes),len(nodes))).tocsr(),directed=False)
-        degree=np.bincount(e.ravel(),minlength=len(nodes)); loops=sum(np.all(degree[g==k]==2) for k in np.unique(g))
+    # DEBUG_ONLY: boundary loops are not classifier inputs.
+    boundary=[]; loops=0
+    if debug:
+        boundary=edges[order[starts[cnt==1]]]; loops=0
+        if len(boundary):
+            nodes,iv=np.unique(boundary,return_inverse=True); e=iv.reshape(-1,2); _,g=connected_components(coo_matrix((np.ones(len(e)),(e[:,0],e[:,1])),shape=(len(nodes),len(nodes))).tocsr(),directed=False)
+            degree=np.bincount(e.ravel(),minlength=len(nodes)); loops=sum(np.all(degree[g==k]==2) for k in np.unique(g))
     # Area-weighted deterministic sampling, independent of vertex density.
     rng=np.random.default_rng(160); n=min(1800,max(200,len(f))); ix=rng.choice(len(f),n,p=area/area.sum()); u=rng.random((n,2)); u[u.sum(1)>1]=1-u[u.sum(1)>1]
     sample=v[ix,0]+u[:,0,None]*(v[ix,1]-v[ix,0])+u[:,1,None]*(v[ix,2]-v[ix,0])
@@ -50,16 +53,18 @@ def conditions(ini,meta):
     return result
 
 
-def report(P,draws,L,bi,bw,unified,ini=None,meta=None):
+def report(P,draws,L,bi,bw,unified,ini=None,meta=None,debug=True):
     span=float(L['crotch']-L['ankle']); print('\n===== SURFACE RELATIONS (phase 1.6; diagnostic only) =====')
     if not np.isfinite(span) or span<=0:return {},[]
     eps=max(span*1e-5,1e-7); near=.035*span; cond=conditions(ini,meta or {}); records=[]; top={}; pairs=[]
     for name,t,role in draws:
         if not len(t):continue
-        r=topology(P,t,eps)
+        r=topology(P,t,eps,debug=debug)
         if r is None:continue
-        s,n,h,b,nm,loops,deg,area=r; lo,hi=np.min(s,axis=0),np.max(s,axis=0); z=np.quantile(s[:,2],[.01,.5,.99]); raw=P[t,2]
-        print(f'{name} [{role}]: area={area:.2f}; Z raw={raw.min():.2f}..{raw.max():.2f}; area Z01/50/99={z.round(2)}; boundary={b}; loops={loops}; nonmanifold={nm}; degenerate={deg}; dihedral%={np.round(h*100,1)}')
+        s,n,h,b,nm,loops,deg,area=r; lo,hi=np.min(s,axis=0),np.max(s,axis=0)
+        if debug:
+            z=np.quantile(s[:,2],[.01,.5,.99]); raw=P[t,2]
+            print(f'{name} [{role}]: area={area:.2f}; Z raw={raw.min():.2f}..{raw.max():.2f}; area Z01/50/99={z.round(2)}; boundary={b}; loops={loops}; nonmanifold={nm}; degenerate={deg}; dihedral%={np.round(h*100,1)}')
         top[name]=float(h[3:].sum()) if h.sum()>0 else None
         if cond.get(name):print('  INI branches:',cond[name])
         records.append((name,role,t,s,n,lo,hi,cKDTree(s)))
@@ -82,9 +87,9 @@ def report(P,draws,L,bi,bw,unified,ini=None,meta=None):
                     da,ja=cKDTree(D).query(C); db,jb=cKDTree(C).query(D); ok=(jb[ja]==np.arange(len(A)))&(da<near)
                     score=np.minimum(W[ok],V[ja[ok]]).sum(); bone_score=float(score); bone=f'local centroid candidate overlap={score:.1%} ({ok.sum()} mutual pairs; not bone identity)'
             align=np.median(np.abs(np.sum(n[p]*m[j[p]],axis=1))) if p.any() else np.nan
-            signed=np.median(np.sum((x[p]-y[j[p]])*m[j[p]],axis=1))/span if p.any() else np.nan
+            if debug: signed=np.median(np.sum((x[p]-y[j[p]])*m[j[p]],axis=1))/span if p.any() else np.nan
             exclusive=any(i==j and c!=d for i,_,c in cond.get(a,()) for j,_,d in cond.get(b,()))
             pairs.append(dict(names=(a,b),near=(float(p.mean()),float(q.mean())),align=align,bone=bone_score,exclusive=exclusive))
-            print(f'  {a} <> {b}: nearby A/B={p.mean():.1%}/{q.mean():.1%}; median distances/span={np.median(d)/span:.4f}/{np.median(e)/span:.4f}; normal alignment={align:.3f}; signed local projection/span={signed:.4f}; {bone}; same-if distinct branch={exclusive}')
+            if debug: print(f'  {a} <> {b}: nearby A/B={p.mean():.1%}/{q.mean():.1%}; median distances/span={np.median(d)/span:.4f}/{np.median(e)/span:.4f}; normal alignment={align:.3f}; signed local projection/span={signed:.4f}; {bone}; same-if distinct branch={exclusive}')
     print('Proximity uses sampled surfaces, not exact raycasting or closed-volume containment. No roles changed.')
     return top,pairs

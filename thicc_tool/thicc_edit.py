@@ -1119,12 +1119,13 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     if not DRAWS:
         sys.exit("no drawindexed found in the TextureOverrideComponent sections of " + ini)
 
+    # Per-run immutable draw geometry: shared by analysis and deformation.
+    from functools import lru_cache
+    @lru_cache(maxsize=None)
     def verts(n):
-        s, c = DRAWS[n]
-        fields = draw_meta[n]["draw"].split(",")
-        base = int(fields[2]) if len(fields) > 2 else 0
-        return np.unique(idx[s:s + c].astype(np.int64) + base)
+        return np.unique(tris(n))
 
+    @lru_cache(maxsize=None)
     def tris(n):
         s, c = DRAWS[n]
         fields = draw_meta[n]["draw"].split(",")
@@ -1430,7 +1431,9 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         if mode == 'diagnose': return result(['Could not measure the landmarks: '+str(e)])
         raise
     natural = dict(L)
-    if mode == "diagnose":
+    # DEBUG_ONLY: enable via future debug mode; no effect on effective landmarks.
+    DEBUG_LEGACY_REPORTS = False
+    if mode == "diagnose" and DEBUG_LEGACY_REPORTS:
         try:
             import torso_profile
             torso_profile.report(P0, skin_tri, natural, [
@@ -1448,14 +1451,14 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
                 P0, np.concatenate([tris(n) for n in SKIN]), skin_tri, natural, refs)
         except Exception as e:
             print("Torso profile unavailable (diagnostic only):", e)
-    if mode == "diagnose":
+    if mode == "diagnose" and DEBUG_LEGACY_REPORTS:
         try:
             import joint_profile
             joint_profile.report(P0, np.concatenate([tris(n) for n in SKIN]),
                                  natural, sinfo if rw is not None else None)
         except Exception as e:
             print("Joint profile unavailable (diagnostic only):", e)
-    if mode == "diagnose":
+    if mode == "diagnose" and DEBUG_LEGACY_REPORTS:
         try:
             import surface_evidence
             surface_evidence.report(P0, [(n, tris(n), role_for(n)) for n in DRAWS], natural, bi, bw, unified, mod, ini, draw_meta)
