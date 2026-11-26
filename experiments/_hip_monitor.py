@@ -1,4 +1,4 @@
-"""Instrumentation of the installed engine, in memory only. No production edits."""
+"""Instrumentation of the installed engine via explicit production observers."""
 import contextlib
 import hashlib
 import inspect
@@ -15,30 +15,23 @@ def insert(src, anchor, addition, before=False):
     return src.replace(anchor, addition+'\n'+anchor if before else anchor+'\n'+addition, 1)
 
 
-def clone(te, monitor):
-    """Clone run and field_ref; inherited dependencies remain the installed code."""
-    rs=inspect.getsource(te.run)
-    fs=textwrap.dedent(inspect.getsource(te.Sculpt.field_ref))
-    for anchor, code, before in [
-        ('    original_outline = outline(PRs)', '    _monitor.target(locals(), "initial")',False),
-        ('    for it in range(8):','    _monitor.target(locals(), "final")',True),
-        ('        err = np.where(np.isnan(grow), 0.0, tgt - grow)', '        _monitor.iteration(locals(), "before update")',False),
-        ('        Hc = np.clip(Hc + 1.3 * env * err, -1.0, 6.0)', '        _monitor.iteration(locals(), "clipped")',False),
-        ('        Hc = np.convolve(np.pad(Hc, 3, mode="edge"), g, "valid") * env','        _monitor.iteration(locals(), "smoothed")',False),
-        ('    # Calibrate the baseline first; otherwise calibration cancels the X control.', '    _monitor.calibrated(locals())',True),
-        ('    fdx, fdy = sc.field(P0[:, 0], P0[:, 1], P0[:, 2])','    _monitor.begin_field(locals())',True),
-        ('    fdx, fdy = sc.field(P0[:, 0], P0[:, 1], P0[:, 2])','    _monitor.end_field()',False),
-    ]: rs=insert(rs,anchor,code,before)
-    for anchor,label in [('    # ---- calibrated multidirectional hip field','butt'),('    # ---- legs (+ optional inner-thigh fill)','hips'),('    if self.rounding is not None:','legs and inner fill'),('    return dx, dy','rounding')]:
-        fs=insert(fs,anchor,'    _monitor.field(%r, locals())'%label,True)
-    scope=dict(te.run.__globals__); scope['_monitor']=monitor
-    exec(compile(fs,'<experiment field_ref clone>','exec'),scope)
-    sculpt=type('MonitoredSculpt',(te.Sculpt,),{'field_ref':scope['field_ref']})
-    scope['Sculpt']=sculpt
-    exec(compile(rs,'<experiment run clone>','exec'),scope)
+def clone(te, monitor, outline_factory=None):
+    """Compatibility name: use production observers, not a source clone."""
+    def observe(event,d):
+        if event=='hip_target_initial': monitor.target(d,'initial')
+        elif event=='hip_target_final': monitor.target(d,'final')
+        elif event=='hip_iteration_before': monitor.iteration(d,'before update')
+        elif event=='hip_iteration_clipped': monitor.iteration(d,'clipped')
+        elif event=='hip_iteration_smoothed': monitor.iteration(d,'smoothed')
+        elif event=='calibrated': monitor.calibrated(d)
+        elif event=='before_field': monitor.begin_field(d)
+        elif event=='after_field': monitor.end_field()
+    def run(mod,mode):
+        return te.run(mod,mode,observer=observe,field_observer=monitor.field,outline_factory=outline_factory)
     print('Engine source SHA256:',hashlib.sha256(inspect.getsource(te.run).encode()).hexdigest())
-    print('Field source SHA256:',hashlib.sha256(inspect.getsource(te.Sculpt.field_ref).encode()).hexdigest())
-    return scope['run']
+    from morphology.calibration import calibrate
+    print('Calibration source SHA256:',hashlib.sha256(inspect.getsource(calibrate).encode()).hexdigest())
+    return run
 
 
 class Monitor:

@@ -7,7 +7,7 @@ import sys
 def discover(root):
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    return sorted((p for p in root.rglob('*.py') if p.is_file()
+    return sorted((p for p in root.rglob('*.py') if p.is_file() and not p.name.startswith('_')
                    and '__pycache__' not in p.relative_to(root).parts
                    and p.resolve().is_relative_to(root)),
                   key=lambda p: str(p.relative_to(root)).casefold())

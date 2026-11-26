@@ -66,6 +66,7 @@ def hashes(mod,ini):
     detectors += [(n,ROOT/n) for n in ('wwmi_role_evidence.py','wwmi_structure.py','detection_cache.py','analysis_context.py')]
     # Full snapshot includes all engine modules, not UI or viewer.
     engine=[('env',env)]+[(p.name,p) for p in sorted(ROOT.glob('*.py')) if p.name!='viewer3d.py']
+    engine += [(str(p.relative_to(ROOT)),p) for p in sorted((ROOT/'morphology').rglob('*.py'))]
     return dict(detectors_hash=digest(detectors),classifier_hash=digest([('classifier',cls)]),
                 mesh_hash=digest([('ini',Path(ini)),('ini_name',Path(ini).name),('position',pos)]+[(n,mesh/n) for n in ('Index.buf','Blend.buf','BlendRemapVertexVG.buf')]),
                 analysis_hash=digest(engine))

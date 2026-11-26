@@ -54,6 +54,7 @@ DEFAULT_CFG = {
     "bounce": "normal",
     "preset": "pear",
     "amounts": {},            # per-key overrides of the preset multipliers
+    "belly_morphology": {"amount": 0.0, "advanced": False},
     "inner_fill": False,      # close the thighs (Rover "Closed Thighs" variant)
     "skin": [],               # part names; empty = automatic
     "freeze": [],             # extra part names never moved
@@ -185,185 +186,18 @@ class Sculpt:
         _ = np.hypot(px, py - cyb)
         ux = px / np.sqrt(_ * _ + 4.0)
         uy = (py - cyb) / np.sqrt(_ * _ + 4.0)
-        ang = np.degrees(np.arccos(np.clip(
-            -uy / np.maximum(np.hypot(ux, uy), 1e-9),
-            -1.0, 1.0
-        )))
-
-        w = (
-            (1.0 - step(55.0, 100.0, ang))
-            * step(75.0, 85.0, pz)
-            * (1.0 - step(93.0, 103.0, pz))
-            * (1.0 - step(16.0, 26.0, _))
-            * step(1.0, 7.0, _)
-            * BUTT_AMT * self.a["butt"]
-        )
-
-        soft = np.sqrt(px * px + (py - cyb) ** 2 + 9.0)
-        dx += w * px / soft * self.direction["butt"][0]
-        dy += w * (py - cyb) / soft * self.direction["butt"][1]
-
-        # ---- calibrated multidirectional hip field
-        if self.hip is not None:
-            wr_hip = (
-                step(4.0, 9.0, _)
-                * (1.0 - step(21.0, 27.0, _))
-            )
-            hip_amount = (np.interp(pz, *self.hip) if not self.coupled_hips else self._hip_spline(pz)) * wr_hip
-            # Broad, smooth lateral response (odd in X).
-            lateral = ux * (0.55 + 0.45 * ux * ux)
-            # Smaller depth response; greater toward the posterior.
-            posterior = step(-0.75, 0.75, -uy)
-            depth = (0.20 + 0.15 * posterior) * uy * (0.65 + 0.35 * ux * ux)
-            dx += hip_amount * lateral * self.direction["hips"][0]
-            dy += hip_amount * depth * self.direction["hips"][1]
-
-        # ---- legs (+ optional inner-thigh fill)
-        for sgn in (1, -1):
-            zk, xk, yk = self.axis[sgn]
-
-            ax = self.curve(zk, xk, pz)
-            ay = self.curve(zk, yk, pz)
-
-            ex, ey = px - ax, py - ay
-            r = np.hypot(ex, ey)
-
-            soft = np.sqrt(r * r + 1.5 ** 2)
-            exu, eyu = ex / soft, ey / soft
-
-            med = np.clip(
-                -exu / np.maximum(np.hypot(exu, eyu), 1e-9) * sgn,
-                0.0, 1.0
-            )
-
-            w_med = (
-                1.0 - med * med
-                * (0.12 + 0.80 * step(50.0, 70.0, pz))
-            )
-
-                        # ---- anatomical thigh deformation
-            leg_amount = self.curve(*self.leg, pz)
-            root_fade = 1.0
-            effective_amount = leg_amount
-
-            if self.root is not None and sgn in self.root:
-                angles, root_z = self.root[sgn]
-
-                theta = np.arctan2(ey, sgn * ex)
-
-                # Provisional anatomical landmarks.
-                thigh_outer = np.interp(
-                    0.0, angles, root_z,
-                    period=2.0 * np.pi
-                )
-
-                thigh_inner = np.interp(
-                    np.pi, angles, root_z,
-                    period=2.0 * np.pi
-                )
-
-                # Continuous anatomical boundary.
-                boundary = np.interp(
-                    theta, angles, root_z,
-                    period=2.0 * np.pi
-                )
-
-                if self.continuous:
-                    from continuous_field import angular_profile
-                    key = (id(angles), id(root_z))
-                    if key not in self._curves:
-                        self._curves[key] = (angles, root_z, angular_profile(angles, root_z))
-                    boundary = self._curves[key][2](theta)
-
-                # One continuous upper profile for the anterior thigh.
-                # Broad angular transition, with a continuous second derivative.
-                # Preserve full anterior strength and zero posterior strength.
-                angular = np.clip((eyu + 0.20) / 1.10, 0.0, 1.0)
-                anterior = angular**3 * (10.0 + angular * (-15.0 + 6.0 * angular))
-                peak_z = self.leg[0][np.argmax(self.leg[1])]
-                peak_amount = np.max(self.leg[1])
-                front_root = np.interp(np.pi / 2, angles, root_z,
-                                       period=2.0 * np.pi)
-                upper_end = np.maximum(
-                    peak_z + 1.0,
-                    LEG_KNOTS[-1][0] + boundary - front_root
-                )
-                t = np.clip((pz - peak_z) / (upper_end - peak_z), 0.0, 1.0)
-                q = t**3 * (10.0 + t * (-15.0 + 6.0 * t))
-                upper_amount = peak_amount * (1.0 - q)
-
-                root_fade = 1.0 - step(
-                    boundary + 6.0 + 12.0 * step(0.35, 0.95, eyu),
-                    boundary + 18.0 + 12.0 * step(0.35, 0.95, eyu),
-                    pz
-                )
-                if self.continuous:
-                    # Single full-length amplitude with anatomical root fade.
-                    effective_amount = leg_amount * root_fade
-                # Blend the combined influence, not two separate fades.
-                mix = anterior * step(peak_z - 3.0, peak_z, pz)
-                target = np.where(pz >= peak_z, upper_amount, leg_amount)
-                if not self.continuous:
-                    effective_amount = (1.0 - mix) * leg_amount * root_fade + mix * target
-
-            w = (
-                effective_amount
-                * (1.0 - step(9.5, 16.0, r))
-                * w_med
-            )
-
-            # Main leg displacement (applied only once).
-            blend = step(47.0, 55.0, pz)
-            gx = self.direction["calves"][0] + blend * (self.direction["thighs"][0] - self.direction["calves"][0])
-            gy = self.direction["calves"][1] + blend * (self.direction["thighs"][1] - self.direction["calves"][1])
-            dx += w * exu * gx
-            dy += w * eyu * gy
-
-            # ---- optional inner-thigh fill
-            if self.inner is not None:
-                own = step(0.0, 1.0, px * sgn)
-
-                fill = (
-                    self.curve(*self.inner, pz)
-                    * med * med
-                    * (1.0 - step(9.5, 16.0, r))
-                    * own
-                    * root_fade
-                )
-
-                dx -= sgn * fill
-
-        if self.rounding is not None:
-            zz, aa, table = self.rounding
-            for sign in (1, -1):
-                zk, xk, yk = self.axis[sign]
-                ex = px + dx - self.curve(zk, xk, pz)
-                ey = py + dy - self.curve(zk, yk, pz)
-                theta = np.arctan2(ey, sign * ex)
-                radius = np.hypot(ex, ey)
-                iz = np.clip(np.searchsorted(zz, pz)-1, 0, len(zz)-2)
-                ia = np.clip(np.searchsorted(aa, theta)-1, 0, len(aa)-2)
-                u = np.clip((pz-zz[iz])/(zz[iz+1]-zz[iz]),0,1)
-                v = np.clip((theta-aa[ia])/(aa[ia+1]-aa[ia]),0,1)
-                # Cubic interpolation with shared slopes, not a stop at each grid node.
-                def weights(t):
-                    return (-.5*t+t*t-.5*t**3, 1-2.5*t*t+1.5*t**3,
-                            .5*t+2*t*t-1.5*t**3, -.5*t*t+.5*t**3)
-                dr = np.zeros_like(radius)
-                for i, wi in enumerate(weights(u)):
-                    for j, wj in enumerate(weights(v)):
-                        dr += wi*wj*table[np.clip(iz+i-1,0,len(zz)-1),
-                                          np.clip(ia+j-1,0,len(aa)-1)]
-                dr *= (px*sign > 0) * (pz >= zz[0]) * (pz <= zz[-1]) * (theta > 0) * (theta < np.pi/2)
-                if self.continuous:
-                    dr *= step(zz[0],zz[2],pz)*(1-step(zz[-3],zz[-1],pz))
-                    dr *= step(0,np.pi/12,theta)*(1-step(5*np.pi/12,np.pi/2,theta))
-                dr *= step(1.0,3.0,radius)*(1-step(13.,19.,radius))
-                dx += dr*ex/np.maximum(radius,1e-9)
-                dy += dr*ey/np.maximum(radius,1e-9)
+        from morphology import glutes, hips, legs, rounding
+        observer = getattr(self, "field_observer", None)
+        glutes.accumulate(self, px, py, pz, dx, dy, step, cyb, _, ux, uy, BUTT_AMT)
+        if observer is not None: observer("butt", locals())
+        terms = hips.accumulate(self, px, py, pz, dx, dy, step, _, ux, uy, capture=observer is not None)
+        if observer is not None: observer("hips", dict(locals(), **terms))
+        legs.accumulate(self, px, py, pz, dx, dy, step, LEG_KNOTS)
+        if observer is not None: observer("legs and inner fill", locals())
+        rounding.accumulate(self, px, py, pz, dx, dy, step)
+        if observer is not None: observer("rounding", locals())
         return dx, dy
 
-    
     def field(self, px, py, pz):
         X, Y, Z = self.to_ref(px, py, pz)
         dX, dY = self.field_ref(X, Y, Z)
@@ -371,18 +205,7 @@ class Sculpt:
 
 
 # ================================================================ geometry helpers
-def contour(tri, z):
-    zs = tri[:, :, 2]
-    c = (zs.min(1) < z) & (zs.max(1) >= z)
-    out = []
-    for a, b in ((0, 1), (1, 2), (2, 0)):
-        A, B = tri[c, a], tri[c, b]
-        za, zb = A[:, 2], B[:, 2]
-        m = (za - z) * (zb - z) < 0
-        f = (z - za[m]) / (zb[m] - za[m])
-        out.append(A[m] + f[:, None] * (B[m] - A[m]))
-        out.append(A[za == z])
-    return np.concatenate(out)
+from morphology.geometry import contour
 
 
 def fit_axis(tri_ref):
@@ -902,52 +725,7 @@ def band_stats(P, sel, z0, z1):
     return torso_half(np.abs(q[:, 0])), q[:, 1].min(), q[:, 1].max(), gap
 
 
-def torso_half(xabs, gap=2.5):
-    """Half-width of the body cross-section that is connected to the midline:
-    walk outwards over the sorted |x| values and stop at the first gap (arms
-    hanging beside the waist or thighs are separated by one)."""
-    v = np.sort(xabs)
-    if len(v) == 0:
-        return np.nan
-    d = np.diff(v)
-    br = np.nonzero(d > gap)[0]
-    return v[br[0]] if len(br) else v[-1]
-
-
-
-def fixed_core_outline(original, triangles, zs):
-    """Keep original section membership throughout X-only hip calibration.
-
-    contour() enumerates intersections in triangle/edge order, determined by Z.
-    Calibration changes only X; therefore these sample identities are stable.
-    The original cutoff and first-gap filter are applied once, not after growth.
-    """
-    tri = original[triangles]
-    masks = []
-    for z in zs:
-        x = np.abs(contour(tri, z)[:, 0])
-        mask = x < 26.0
-        if np.count_nonzero(mask) >= 6:
-            mask &= x <= torso_half(x[mask]) + 1e-8
-        else:
-            mask[:] = False
-        masks.append(mask)
-
-    def outline(Q):
-        tri = Q[triangles]
-        out = np.full(len(zs), np.nan)
-        for i, z in enumerate(zs):
-            x = np.abs(contour(tri, z)[:, 0])
-            mask = masks[i]
-            if len(x) != len(mask):
-                raise RuntimeError("Hip calibration section correspondence changed")
-            # Preserve the legacy baseline even when its core has fewer than
-            # six points: the six-point gate applies to the original section.
-            if np.any(mask):
-                out[i] = np.max(x[mask])
-        return out
-
-    return outline
+from morphology.calibration import torso_half, fixed_core_outline
 
 
 def measure(P, skin, H, skin_tri):
@@ -1051,7 +829,9 @@ def normalize_legacy_part_names(cfg, draws):
 
 
 # ================================================================ main
-def run(mod, mode, bounce=None, automatic_proposal=False):
+def run(mod, mode, bounce=None, automatic_proposal=False, *, config_override=None, observer=None, prepared_geometry=None, disable_hip=False, outline_factory=None, zero_calibration=False, field_observer=None, positions_only=False):
+    if (positions_only or config_override is not None or observer is not None or prepared_geometry is not None or disable_hip or outline_factory is not None or zero_calibration or field_observer is not None) and mode != "dry":
+        raise ValueError("Experimental inputs are supported only in dry mode")
     M = os.path.join(mod, "Meshes")
     POS, VEC = os.path.join(M, "Position.buf"), os.path.join(M, "Vector.buf")
     if mode == "restore":
@@ -1063,6 +843,9 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     cfg = json.loads(json.dumps(DEFAULT_CFG))
     if os.path.exists(cfg_path):
         cfg.update(json.load(open(cfg_path, encoding="utf-8")))
+    if config_override is not None:
+        import copy
+        cfg.update(copy.deepcopy(config_override))
     if automatic_proposal:
         for k in ("skin", "freeze", "move", "anatomy"): cfg[k] = []
     if bounce is not None:
@@ -1119,9 +902,13 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
             # Structural diagnostics must never block a working mod analysis.
             wwmi_structure_summary = {"error": "%s: %s" % (type(exc).__name__, exc)}
             print("WWMI structure unavailable (diagnostic only):", exc)
-    P0 = np.fromfile(POS + ".orig" if os.path.exists(POS + ".orig") else POS, np.float32).reshape(-1, 3).astype(np.float64)
+    if prepared_geometry is not None:
+        from pathlib import Path
+        if prepared_geometry.root != Path(mod).resolve() or prepared_geometry.ini.resolve() != Path(ini).resolve() or set(prepared_geometry.faces) != set(DRAWS):
+            raise ValueError("Prepared geometry belongs to a different model or INI")
+    P0 = prepared_geometry.positions if prepared_geometry is not None else np.fromfile(POS + ".orig" if os.path.exists(POS + ".orig") else POS, np.float32).reshape(-1, 3).astype(np.float64)
     N = len(P0)
-    idx = np.fromfile(os.path.join(M, "Index.buf"), np.uint32)
+    idx = prepared_geometry.indices if prepared_geometry is not None else np.fromfile(os.path.join(M, "Index.buf"), np.uint32)
     T = idx[:len(idx) // 3 * 3].reshape(-1, 3)
     # Validate the actual index ranges and base-vertex offsets before any
     # component is measured or any mesh buffer is modified. This uses the
@@ -1166,7 +953,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         base = int(fields[2]) if len(fields) > 2 else 0
         return (idx[s:s+c].astype(np.int64) + base).reshape(-1, 3)
     
-    context = AnalysisContext(P0, draw_triangles, DRAWS, options=options)
+    context = prepared_geometry.context if prepared_geometry is not None else AnalysisContext(P0, draw_triangles, DRAWS, options=options)
     verts, tris = context.vertex_ids, context.triangles
     faces = {n: tris(n) for n in DRAWS}
     # 002: independent read-only evidence, before effective roles or anatomy.
@@ -1712,76 +1499,15 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
                         f"p90={np.percentile(r, 90):.3f}"
                     )
 
-    # hip outline calibration (reference frame): silhouette growth -> target
-    coupled = bool(cfg.get("coupled_hips", False)) and amounts["hips"] > 0
-    zs = np.arange(REF["knee"] if coupled else 56.0, 118.001, 1.0)
-    a, b, c, d = HIP_ENV
-    env = smoothstep(a, b, zs) * (1.0 - smoothstep(c, d, zs))
-    T0 = np.interp(zs, [k[0] for k in HIP_TARGET], [k[1] for k in HIP_TARGET])
-    wt = smoothstep(72.0, 82.0, zs)
-    lower_amount = max(amounts["thighs"], 0.35 * amounts["hips"])
-    tgt = T0 * ((1 - wt) * lower_amount + wt * amounts["hips"])
-    Hc = np.zeros_like(zs)
-    sv = np.unique(skin_tri)
-    remap = np.full(N, -1, np.int64)
-    remap[sv] = np.arange(len(sv))
-    tri_l = remap[skin_tri]
-    PRs = PR[sv]
-    g = np.exp(-0.5 * (np.arange(-3, 4) / 1.5) ** 2)
-    g /= g.sum()
-
-    outline = fixed_core_outline(PRs, tri_l, zs)
-    print("Hip contour calibration: Fixed Core (original section membership)")
-    original_outline = outline(PRs)
-    relative = bool(cfg.get("relative_silhouette", False))
-    if coupled:
-        from hip_thigh_profile import coupled_target, quintic
-        from scipy.interpolate import PchipInterpolator
-        hip_ref = float(sc.zmap(np.asarray([L["hip_z"]]))[0])
-        Q = PRs.copy()
-        Q[:,0] += sc.field_ref(*PRs.T)[0]
-        natural = np.nan_to_num(outline(Q)-original_outline, nan=0.)
-        ctrl = cfg.get("hip_profile", {})
-        amp = float(np.interp(hip_ref, zs, tgt))
-        tgt, peak = coupled_target(zs, original_outline, natural, hip_ref, REF["waist"], REF["knee"], amp, float(ctrl.get("upper",1.4)), float(ctrl.get("lower",1.65)), float(ctrl.get("peak",0.)))
-        env = quintic((zs-REF["knee"])/5.) * (1-quintic((zs-(REF["waist"]-5.))/5.))
-        print("\n===== DEFORMATION PHASE 2.7 / COUPLED HIP-THIGH PROFILE =====")
-        print("Hip center %.2f; expansion center %.2f; peak target %.2f; controls %s" % (hip_ref,peak,amp,ctrl))
-        print("Coupled profile replaces relative silhouette target when enabled.")
-        relative = False
-    if relative:
-        from silhouette_target import relative_target
-        hip_ref = float(sc.zmap(np.asarray([L["hip_z"]]))[0])
-        tgt, scale = relative_target(zs, original_outline, tgt, hip_ref, REF["waist"], REF["hip_half"], float(cfg.get("silhouette_strength", 1.0)))
-        print("\n===== DEFORMATION PHASE 2.6 / RELATIVE SILHOUETTE =====")
-        print("Hip reference Z %.2f; local scale %.3f; waist target growth zero" % (hip_ref, scale))
-    for it in range(8):
-        sc.hip = (zs, Hc)
-        if coupled:
-            sc.coupled_hips = True
-            spline = PchipInterpolator(zs, Hc, extrapolate=False)
-            sc._hip_spline = lambda z, f=spline: np.nan_to_num(f(z), nan=0.0)
-        dxr, _ = sc.field_ref(PRs[:, 0], PRs[:, 1], PRs[:, 2])
-        Q = PRs.copy()
-        Q[:, 0] += dxr
-        grow = outline(Q) - original_outline
-        err = np.where(np.isnan(grow), 0.0, tgt - grow)
-        Hc = np.clip(Hc + 1.3 * env * err, -1.0, 6.0)
-        Hc = np.convolve(np.pad(Hc, 3, mode="edge"), g, "valid") * env
-    sc.hip = (zs, Hc)
-    if coupled:
-        spline = PchipInterpolator(zs, Hc, extrapolate=False)
-        sc._hip_spline = lambda z, f=spline: np.nan_to_num(f(z), nan=0.0)
-    if relative or coupled:
-        # Report the actual post-iteration residual, not the previous iteration.
-        Q = PRs.copy()
-        Q[:, 0] += sc.field_ref(PRs[:,0], PRs[:,1], PRs[:,2])[0]
-        err = np.where(np.isfinite(original_outline) & np.isfinite(outline(Q)), tgt - (outline(Q)-original_outline), np.nan)
-    bad_z = zs[(env > 0.5) & (np.abs(err) > 0.4)]
-    print("hip calibration: residual %.3f cm (ref frame)%s" % (
-        np.nanmax(np.abs(err[env > 0.5])),
-        ("   off-target at ref z " + ", ".join("%.0f" % z for z in bad_z)) if len(bad_z) else ""))
-
+    from morphology.calibration import calibrate
+    calibration = calibrate(sc, PR, skin_tri, L, amounts, cfg, REF, HIP_ENV, HIP_TARGET, smoothstep,
+                            observer=observer, outline_factory=outline_factory, zero_calibration=zero_calibration)
+    # Compatibility names used by final silhouette reporting and older diagnostics.
+    zs, env, tgt, T0, Hc, sv, tri_l, PRs, outline, original_outline, relative, coupled, hip_ref, err = (
+        calibration[k] for k in ("zs", "env", "tgt", "T0", "Hc", "sv", "tri_l", "PRs", "outline",
+                                  "original_outline", "relative", "coupled", "hip_ref", "err"))
+    if observer is not None: observer("calibrated", locals())
+    if disable_hip: sc.hip = None
     # Calibrate the baseline first; otherwise calibration cancels the X control.
     directional = cfg.get("directional_expansion", {})
     for key in sc.direction:
@@ -1798,7 +1524,11 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         fit_rounding(sc, PR, [tris(n) for n in SKIN], L)
 
     # ---- apply -------------------------------------------------------------
+    if field_observer is not None: sc.field_observer = field_observer
+    if observer is not None: observer("before_field", locals())
     fdx, fdy = sc.field(P0[:, 0], P0[:, 1], P0[:, 2])
+    if observer is not None: observer("after_field", locals())
+    if field_observer is not None: sc.field_observer = None
     from seam_guard import SeamGuard
     frozen_ids = context.union(n for n in freeze if n in DRAWS) if any(n in DRAWS for n in freeze) else np.empty(0, dtype=np.int64)
     seam = SeamGuard(P0, frozen_ids, allow, H) if cfg.get("seam_guard", True) else SeamGuard(P0, [], allow, H)
@@ -1828,8 +1558,9 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         new[cand, 0] = side * (xx + bb * (f - xx))
         sqd[cand] = 1.0 - bb + bb / (1.0 + np.exp(-u))
         dx = new[:, 0] - P0[:, 0]
+    if observer is not None: observer("before_waist", locals())
     waist = cfg.get("waist_morphology", {})
-    if waist.get("enabled", False) and (waist.get("width",1)!=1 or waist.get("depth",1)!=1):
+    if config_override is not None and waist.get("enabled", False) and (waist.get("width",1)!=1 or waist.get("depth",1)!=1):
         print("\n===== DEFORMATION PHASE 3.2 / WAIST MORPHOLOGY =====")
         if cfg.get("surface_shading", "Original") == "Legacy":
             raise ValueError("Waist morphology requires Original, Adaptive or Geometric shading.")
@@ -1842,6 +1573,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
                      float(waist.get("width",1)), float(waist.get("depth",1)), contour,
                      manual="waist" in cfg.get("landmarks", {}))
         dx, dy = (new-P0)[:,0], (new-P0)[:,1]
+    if observer is not None: observer("after_waist", locals())
     if cfg.get("displacement_smoothing", False):
         print("\n===== DEFORMATION PHASE 2.4 / TAUBIN DISPLACEMENT =====")
         if cfg.get("surface_shading", "Original") == "Legacy":
@@ -1914,6 +1646,23 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         np.count_nonzero(arm_locked), arm_leak.max() if len(arm_leak) else 0.0))
     new[arm_locked] = P0[arm_locked]
     dx, dy = (new-P0)[:,0], (new-P0)[:,1]
+    # Belly is an additive regional stage on the stable production baseline.
+    from morphology.belly import parameters as belly_parameters, apply_belly
+    belly_cfg = cfg.get("belly_morphology", {})
+    belly_base = None
+    if observer is not None: observer("before_belly", locals())
+    if belly_parameters(belly_cfg)["depth"] > 0:
+        print("\n===== DEFORMATION / BELLY MORPHOLOGY =====")
+        belly_base = new.astype(np.float32).astype(float)
+        belly_faces = {n: tris(n) for n in DRAWS}
+        belly_data = dict(L=L, skin=list(SKIN), garments=list(GARMENTS),
+                          active=list(reference['active']), allow=allow, guard=guard,
+                          arm=arm_influence, H=H)
+        new, belly_tri = apply_belly(P0, belly_base, belly_faces, belly_data, belly_cfg)
+        # Preserve exact untouched baseline coordinates; float32 is validated for output.
+        dx, dy = (new-P0)[:,0], (new-P0)[:,1]
+    if positions_only:
+        return {"preview_positions": new.astype(np.float32)}
     if relative or coupled:
         print("\n--- FINAL SILHOUETTE / after masks, directional controls and smoothing ---")
         X, Y, Z = sc.to_ref(new[sv,0], new[sv,1], new[sv,2])
@@ -2012,7 +1761,9 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
     print("Mode: " + shading)
     if len(vec) != N:
         raise ValueError("Vector.buf vertex count does not match Position.buf")
-    moved = disp > (0.02 if shading == "Legacy" else 1e-6)
+    shading_geometry = new if belly_base is None else belly_base
+    shading_disp = disp if belly_base is None else np.linalg.norm(belly_base-P0, axis=1)
+    moved = shading_disp > (0.02 if shading == "Legacy" else 1e-6)
     if shading == "Legacy":
         F = np.tile(np.eye(3), (N, 1, 1))
         Hh = 0.05
@@ -2035,7 +1786,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
         n_new = np.einsum("nij,nj->ni", Fit, n_old)
         t_new /= np.maximum(np.linalg.norm(t_new, axis=1), 1e-9)[:, None]
         n_new /= np.maximum(np.linalg.norm(n_new, axis=1), 1e-9)[:, None]
-        wb = smoothstep(0.02, 0.55, disp)
+        wb = smoothstep(0.02, 0.55, shading_disp)
         t_b = (1.0 - wb)[:, None] * t_old + wb[:, None] * t_new
         n_b = (1.0 - wb)[:, None] * n_old + wb[:, None] * n_new
         n_b /= np.maximum(np.linalg.norm(n_b, axis=1), 1e-9)[:, None]
@@ -2053,19 +1804,28 @@ def run(mod, mode, bounce=None, automatic_proposal=False):
             base = int(fields[2]) if len(fields) > 2 else 0
             raw = idx[start:start+count].astype(np.int64) + base
             faces.append(raw[:len(raw)//3*3].reshape(-1,3))
-        t_b, n_b, moved = surface_frames(P0, new.astype(np.float32).astype(np.float64), np.concatenate(faces), t_old, n_old, moved, shading)
+        t_b, n_b, moved = surface_frames(P0, shading_geometry.astype(np.float32).astype(np.float64), np.concatenate(faces), t_old, n_old, moved, shading)
 
     def pack(V):
         return np.clip(np.rint(V * 127.0), -127, 127).astype(np.int8)
     tan_ok = np.abs((t_old * n_old).sum(1)) < 0.2
     vec[:, 0:3] = np.where((moved & tan_ok)[:, None], pack(t_b), vec[:, 0:3])
     vec[:, 4:7] = np.where(moved[:, None], pack(n_b), vec[:, 4:7])
+    if belly_base is not None:
+        from morphology.experimental_apply import belly_vectors
+        # Original shading remains a deliberate choice; other modes transport Belly frames.
+        prior = vec.copy()
+        vec = belly_vectors(belly_base, new, vec, belly_tri, shading)
+        changed = np.any(vec != prior, axis=1)
+        moved |= changed
+        print("[BELLY] shading=%s | additional vectors changed=%d" % (shading, changed.sum()))
     nn = vec[:, 4:7].astype(np.float64)
     nn /= np.maximum(np.linalg.norm(nn, axis=1), 1e-9)[:, None]
     tv = np.degrees(np.arccos(np.clip((n_old * nn).sum(1), -1, 1)))
     orig = np.fromfile(VEC + ".orig", np.int8).reshape(-1, 8)
     print("vectors: %d re-framed   normal turn mean %.1f max %.1f deg   untouched bit-exact: %s"
           % (moved.sum(), tv[moved].mean() if moved.any() else 0., tv[moved].max() if moved.any() else 0., np.array_equal(vec[~moved], orig[~moved])))
+    if observer is not None: observer("after_shading", {"vectors": vec})
     if mode != "write":
         print("\n[DRY RUN] Geometry buffers unchanged. Re-run with --write to apply.")
         return {"preview_positions": new.astype(np.float32)}

@@ -18,6 +18,9 @@ def width(c,method):
     return c[idx[0]] if len(idx) else c[-1]
 
 def make_outline(contour, original, triangles, zs, method):
+    if method == "fixed_core":
+        from morphology.calibration import fixed_core_outline
+        return fixed_core_outline(original, triangles, zs, contour=contour)
     # The calibration changes X only, so plane/edge intersection ordering is invariant.
     base=[np.abs(contour(original[triangles],z)[:,0]) for z in zs]
     masks=[]
@@ -57,15 +60,8 @@ def run_case(root,saved,hips,method):
     cfg=hm.config(te,saved); cfg['amounts']['hips']=float(hips)
     (root/'thicc.json').write_text(json.dumps(cfg,ensure_ascii=False),encoding='utf-8')
     print('\n===== HIPS %.3f | %s ====='%(hips,method),flush=True)
-    mon=SweepMonitor(); old=hm.insert
-    def insert(src,anchor,addition,before=False):
-        if anchor=='    original_outline = outline(PRs)':
-            src=old(src,anchor,'    outline = _experimental_outline(contour, PRs, tri_l, zs, _method)',True)
-        return old(src,anchor,addition,before)
-    hm.insert=insert
-    try: run=hm.clone(te,mon)
-    finally: hm.insert=old
-    run.__globals__.update(_experimental_outline=make_outline,_method=method)
+    mon=SweepMonitor()
+    run=hm.clone(te,mon,outline_factory=lambda p,t,z:make_outline(te.contour,p,t,z,method))
     q=hm.run_quiet(run,root)
     if len(mon.iterations)!=8 or not mon.fields: raise RuntimeError('Incomplete instrumentation')
     target=mon.targets['final']['tgt']; env=mon.targets['final']['env']; residual=target-(mon.actual-mon.targets['initial']['original_outline'])
@@ -84,20 +80,9 @@ def report(mon):
         if b['env'][i]>0 or abs(gain[i])>1e-5:
             print('%6.2f %7.2f | %7.3f %7.3f %7.3f %7.3f %7.3f'%(z,zm[i],a['original_outline'][i],b['tgt'][i],gain[i],b['tgt'][i]-gain[i],mon.hc[i]))
 
-def viewer(p,faces,cases,names,title):
-    import pyvista as pv
-    names=[n for n in names if n in faces and len(faces[n])]
-    if not names: raise RuntimeError('No resolved visible parts')
-    cols=min(3,len(cases)); rows=(len(cases)+cols-1)//cols
-    plot=pv.Plotter(shape=(rows,cols),window_size=(1500,900),title=title)
-    colors=['#a6bcd1','#b3b9a2','#c2a9a0','#a9b3c1','#b9a6c4']
-    for i,(label,q) in enumerate(cases):
-        plot.subplot(i//cols,i%cols)
-        for j,n in enumerate(names):
-            t=faces[n]; ids=np.unique(t); cells=np.column_stack((np.full(len(t),3),np.searchsorted(ids,t))).ravel()
-            plot.add_mesh(pv.PolyData(q[ids],cells),color=colors[j%len(colors)],smooth_shading=True)
-        plot.add_text(label,font_size=11); plot.view_xz(); plot.enable_parallel_projection()
-    plot.link_views(); plot.reset_camera(); plot.show()
+def viewer(p,faces,cases,names,title,view='back'):
+    from morphology.viewer import ExperimentViewer
+    ExperimentViewer(p,faces,cases,names,title).show(view=view)
 
 def saved_hips(saved):
     import thicc_edit as te

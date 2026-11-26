@@ -20,7 +20,7 @@ def patched_run(replacements):
     try: yield te
     finally: te.run=original
 
-def run_case(root, cfg, label, replacements=()):
+def run_case(root, cfg, label, replacements=(), **options):
     print('\n===== CASE: '+label+' =====',flush=True)
     cfg=dict(cfg); cfg['seam_guard']=False
     (root/'thicc.json').write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -36,7 +36,7 @@ def run_case(root, cfg, label, replacements=()):
                         if k in d: capture[k]=d[k]
                 return trace
         previous=sys.gettrace(); sys.settrace(trace)
-        try: result=te.run(str(root),'dry')
+        try: result=te.run(str(root),'dry',**options)
         finally: sys.settrace(previous)
     if not isinstance(result,dict) or 'preview_positions' not in result or 'SKIN' not in capture:
         raise RuntimeError('Engine did not complete preview.')

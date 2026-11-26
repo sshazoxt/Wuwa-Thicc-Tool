@@ -117,15 +117,16 @@ Anatomy is independent of role and visibility. Correct roles manually, then Save
 Double-click Part to view its geometry; double-click Label to rename a part. Show / hide changes the INI; refresh the game with F10.
 Select parts and click View 3D geometry to inspect them. Ctrl+click toggles individual rows; Shift+click selects a range. Left drag rotates, right drag pans, and the wheel zooms. Screenshot saves a high-resolution PNG.
 Preview computes deformation without replacing geometry buffers. Apply writes buffers; Restore recovers .orig geometry, not the INI.
+Live Preview is optional and starts 600 ms after a changed slider is released. It stops automatically if the isolated computation exceeds two seconds. Manual Preview prepares a reusable Belly baseline. The viewer remains available on every workspace tab.
 1.0 is the base contribution; 0 disables that contribution. Blank measurements are automatic. Only Normal bounce is implemented.
 Library stores folder references, not copies. Analyze library runs diagnostics sequentially with each mod's saved settings. Cancel stops the batch; completed logs remain.
 Keep backups of your mods."""
 
 class App(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.6 · ARF diagnostic'); self.resize(1500,900); self.setMinimumSize(1000,650)
+        super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.8 · Workspace'); self.resize(1500,900); self.setMinimumSize(1000,650)
         self.preview_positions=None; self.busy=False; self.job=None; self.analysis=None; self.analyzed_mod=None; self.anatomy=set(); self.auto_lm={}; self.pending_mod=None; self.plot=None; self._populate_viewer=None; self._viewer_has_geometry=False; self._closing=False; self.library=[]; self.batch=None; self.library_last_dir=""
-        self._build(); self._load_settings()
+        self._build(); self._load_settings(); self._setup_live()
     def _build(self):
         root=QWidget(); self.setCentralWidget(root); self.main=root; l=QVBoxLayout(root); l.setContentsMargins(16,12,16,12); l.setSpacing(10)
         def button(layout,text,fn):
@@ -137,7 +138,7 @@ class App(QMainWindow):
         header=QHBoxLayout(); l.addLayout(header); title=QLabel('Thicc Tool'); title.setObjectName('heading'); header.addWidget(title); header.addWidget(QLabel('Morphology editor · WWMI')); header.addStretch(); self.theme=combo(['Dark','Light']); header.addWidget(self.theme.w); self.theme.w.currentTextChanged.connect(self.set_theme)
         bar=QHBoxLayout(); l.addLayout(bar); self.mod=Var(QLineEdit()); self.mod.w.setPlaceholderText('Mod folder'); bar.addWidget(self.mod.w,1); button(bar,'Browse…',self.pick); self.analyze_btn=QToolButton(); self.analyze_btn.setText('Analyze'); self.analyze_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup); self.analyze_btn.clicked.connect(lambda checked=False:self.analyze()); am=QMenu(self.analyze_btn); am.addAction('Force analyze',lambda:self.analyze(force=True)); am.addSeparator(); am.addAction('Analyze library',lambda:self.analyze_library()); am.addAction('Force analyze library',lambda:self.analyze_library(force=True)); self.analyze_btn.setMenu(am); bar.addWidget(self.analyze_btn); button(bar,'Library',self.manage_library); button(bar,'Open folder',self.open_folder)
         vertical=QSplitter(Qt.Orientation.Vertical); l.addWidget(vertical,1); split=QSplitter(Qt.Orientation.Horizontal); vertical.addWidget(split)
-        left=QWidget(); left.setObjectName("workspacePanel"); ll=QVBoxLayout(left); ll.setContentsMargins(12,12,12,12); ll.setSpacing(8); split.addWidget(left); wardrobe_title=QLabel("Wardrobe"); wardrobe_title.setObjectName("sectionHeading"); ll.addWidget(wardrobe_title)
+        left=QWidget(); left.setObjectName("workspacePanel"); ll=QVBoxLayout(left); ll.setContentsMargins(12,12,12,12); ll.setSpacing(8); wardrobe_title=QLabel("Wardrobe"); wardrobe_title.setObjectName("sectionHeading"); ll.addWidget(wardrobe_title)
         warning=QLabel('Weighted automatic classification (002). Hover over Role for score and evidence; review in 3D.'); warning.setWordWrap(True); warning.setObjectName('warning'); ll.addWidget(warning)
         self.cache_note=QLabel(''); self.cache_note.setWordWrap(True); self.cache_note.hide(); ll.addWidget(self.cache_note); self.mod.w.textChanged.connect(lambda _:self.cache_note.hide())
         self.tree=Table(); ll.addWidget(self.tree,1); self.tree.cellDoubleClicked.connect(self.part_double_clicked); self.tree.horizontalHeaderItem(0).setToolTip("Double-click a Part to view its geometry"); self.tree.horizontalHeaderItem(1).setToolTip("Double-click a Label to rename it")
@@ -145,26 +146,49 @@ class App(QMainWindow):
         for k in ROLES: button(row,ROLES[k],lambda k=k:self.set_role(k))
         button(row,'Show / hide',self.toggle_visibility)
         row=QHBoxLayout(); ll.addLayout(row); button(row,'+ Anatomy',lambda:self.set_anatomy(True)); button(row,'− Anatomy',lambda:self.set_anatomy(False)); button(row,'Save and analyze',self.save_anatomy); button(row,'Reset automatic',self.reset_auto)
-        center=QWidget(); center.setObjectName("workspacePanel"); cl=QVBoxLayout(center); cl.setContentsMargins(12,12,12,12); split.addWidget(center); viewer_title=QLabel("3D Viewer · Selected parts"); viewer_title.setObjectName("sectionHeading"); cl.addWidget(viewer_title)
+        center=QWidget(); center.setObjectName("workspacePanel"); cl=QVBoxLayout(center); cl.setContentsMargins(12,12,12,12); viewer_title=QLabel("3D Viewer · Selected parts"); viewer_title.setObjectName("sectionHeading"); cl.addWidget(viewer_title)
         row=QHBoxLayout(); cl.addLayout(row); self.viewer_mode=combo(['Current','Original','Preview','Comparison','Displacement']); row.addWidget(self.viewer_mode.w); self.wire=check('Wireframe'); row.addWidget(self.wire.w); button(row,'View 3D geometry',self.view3d).setObjectName('primary')
         self.viewer_status=QLabel("3D engine: starting…"); self.viewer_status.setWordWrap(True); cl.addWidget(self.viewer_status)
         self.viewhost=QFrame(); self.viewhost.setObjectName("viewerHost"); self.viewlayout=QVBoxLayout(self.viewhost); self.viewlayout.setContentsMargins(0,0,0,0); self.placeholder=QLabel('Analyze a mod and select one or more parts.'); self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter); self.placeholder.setWordWrap(True); self.viewlayout.addWidget(self.placeholder,1); cl.addWidget(self.viewhost,1)
         row=QHBoxLayout(); cl.addLayout(row); button(row,'Front',lambda:self.camera('xz')); button(row,'Side',lambda:self.camera('yz')); button(row,'Perspective',lambda:self.camera('iso')); button(row,'Fit',lambda:self.camera('fit')); button(row,'Screenshot',self.viewer_screenshot).setToolTip('Save a high-resolution PNG of the current 3D view.')
-        right=QTabWidget(); right.setObjectName("inspector"); split.addWidget(right); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(QLabel('Base shape')); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}
+        right=QTabWidget(); right.setObjectName("inspector"); self.workspace_tabs=right; split.addWidget(right); split.addWidget(center); right.addTab(left,"Wardrobe"); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(QLabel('Base shape')); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}
         for k,t in SLIDERS:
+            if k in ('butt','thighs'):
+                heading=QLabel('Pelvis' if k=='butt' else 'Legs'); heading.setObjectName('sectionHeading'); sh.addWidget(heading)
             sh.addWidget(QLabel(t)); row=QHBoxLayout(); sh.addLayout(row); slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus); slider.setRange(0,500 if k=='hips' else 200); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,5 if k=='hips' else 2); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1); slider.setValue(100); slider.valueChanged.connect(lambda v,s=spin:s.setValue(v/100)); spin.valueChanged.connect(lambda v,s=slider:s.setValue(round(v*100))); row.addWidget(slider,1); row.addWidget(spin); self.amount[k]=Var(spin)
-        self.waist_group=QGroupBox('Waist morphology (experimental)'); self.waist_group.setCheckable(True); self.waist_group.setChecked(False)
-        wl=QFormLayout(self.waist_group); self.waist_controls={}
-        for key,label in [('width','Waist width'),('depth','Waist depth')]:
-            spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(.60,1.50); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1.); wl.addRow(label,spin); self.waist_controls[key]=Var(spin)
-        sh.addWidget(self.waist_group)
-        self.relative_silhouette=check('Relative silhouette calibration (experimental)'); sh.addWidget(self.relative_silhouette.w)
-        row=QHBoxLayout(); sh.addLayout(row); row.addWidget(QLabel('Target strength')); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,2); spin.setDecimals(2); spin.setSingleStep(.1); spin.setValue(1); row.addWidget(spin); self.silhouette_strength=Var(spin)
+        heading=QLabel("Abdomen"); heading.setObjectName("sectionHeading"); sh.addWidget(heading)
+        # Belly basic and advanced share one persisted configuration, not preset amounts.
+        from morphology.belly import LIMITS, basic_parameters
+        row=QHBoxLayout(); sh.addLayout(row); row.addWidget(QLabel('Belly')); row.addStretch()
+        self.belly_advanced=QToolButton(); self.belly_advanced.setText('Advanced'); self.belly_advanced.setCheckable(True); self.belly_advanced.setToolTip('Advanced starts from the current basic profile. Returning to Basic uses the universal amount.'); row.addWidget(self.belly_advanced)
+        def belly_control(layout, lo, hi, value, scale=1000):
+            row=QHBoxLayout(); layout.addLayout(row)
+            slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setRange(round(lo*scale),round(hi*scale)); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            spin=FocusWheelSpin(); spin.setRange(lo,hi); spin.setDecimals(2 if scale==100 else 3); spin.setSingleStep(.01); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            spin.setValue(value); slider.setValue(round(value*scale)); slider.valueChanged.connect(lambda v:spin.setValue(v/scale)); spin.valueChanged.connect(lambda v:slider.setValue(round(v*scale)))
+            row.addWidget(slider,1); row.addWidget(spin); return slider,spin
+        self.belly_slider,self.belly_amount=belly_control(sh,0.,1.,0.,100)
+        self.belly_group=QGroupBox('Belly advanced controls'); bl=QVBoxLayout(self.belly_group); self.belly_controls={}
+        for key,(lo,hi) in LIMITS.items():
+            bl.addWidget(QLabel(key.title())); _,spin=belly_control(bl,lo,hi,basic_parameters(0)[key]); self.belly_controls[key]=spin
+        sh.addWidget(self.belly_group); self.belly_group.hide()
+        def belly_mode(advanced):
+            if advanced:
+                for k,v in basic_parameters(self.belly_amount.value()).items(): self.belly_controls[k].setValue(v)
+            self.belly_group.setVisible(advanced); self.belly_slider.setEnabled(not advanced); self.belly_amount.setEnabled(not advanced)
+        self.belly_advanced.toggled.connect(belly_mode)
+        self.advanced_toggle=QToolButton(); self.advanced_toggle.setText('Advanced morphology settings'); self.advanced_toggle.setCheckable(True); self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon); self.advanced_toggle.setArrowType(Qt.ArrowType.RightArrow); sh.addWidget(self.advanced_toggle)
+        advanced_body=QWidget(); advanced_layout=QVBoxLayout(advanced_body); advanced_layout.setContentsMargins(0,0,0,0); sh.addWidget(advanced_body); advanced_body.hide()
+        def toggle_advanced(opened):
+            advanced_body.setVisible(opened); self.advanced_toggle.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
+        self.advanced_toggle.toggled.connect(toggle_advanced)
+        self.relative_silhouette=check('Relative silhouette calibration (experimental)'); advanced_layout.addWidget(self.relative_silhouette.w)
+        row=QHBoxLayout(); advanced_layout.addLayout(row); row.addWidget(QLabel('Target strength')); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,2); spin.setDecimals(2); spin.setSingleStep(.1); spin.setValue(1); row.addWidget(spin); self.silhouette_strength=Var(spin)
         profile=QGroupBox('Coupled hip-thigh profile (experimental)'); profile.setCheckable(True); profile.setChecked(False)
         self.hip_profile_group=profile; self.hip_profile={}; pl=QFormLayout(profile)
         for key,label,lo,hi,default in [('upper','Upper spread',.5,2.5,1.4),('lower','Lower spread',.5,2.5,1.65),('peak','Peak height offset',-.3,.3,0.)]:
             spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(lo,hi); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(default); pl.addRow(label,spin); self.hip_profile[key]=Var(spin)
-        sh.addWidget(profile)
+        advanced_layout.addWidget(profile)
         self.direction = {}
         directional = QGroupBox('Directional expansion (experimental)'); directional.setCheckable(True); directional.setChecked(False)
         dl=QGridLayout(directional); dl.addWidget(QLabel('Region'),0,0); dl.addWidget(QLabel('X · Width'),0,1); dl.addWidget(QLabel('Y · Depth'),0,2)
@@ -173,29 +197,145 @@ class App(QMainWindow):
             for j in (1,2):
                 spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,2); spin.setDecimals(2); spin.setSingleStep(.1); spin.setValue(1); dl.addWidget(spin,i,j); pair.append(Var(spin))
             self.direction[key]=pair
-        self.direction_group=directional; sh.addWidget(directional)
-        note=QLabel('1 = unchanged; 0 = no contribution on that axis. Groin fill remains independent. Non-neutral settings skip thigh rounding.'); note.setWordWrap(True); sh.addWidget(note)
-        self.arm_protection=check("Advanced arm protection (experimental)"); sh.addWidget(self.arm_protection.w)
-        self.advanced_clothing=check("Advanced clothing adaptation (experimental)"); sh.addWidget(self.advanced_clothing.w)
+        self.direction_group=directional; advanced_layout.addWidget(directional)
+        note=QLabel('1 = unchanged; 0 = no contribution on that axis. Groin fill remains independent. Non-neutral settings skip thigh rounding.'); note.setWordWrap(True); advanced_layout.addWidget(note)
+        self.arm_protection=check("Advanced arm protection (experimental)"); advanced_layout.addWidget(self.arm_protection.w)
+        self.advanced_clothing=check("Advanced clothing adaptation (experimental)"); advanced_layout.addWidget(self.advanced_clothing.w)
         self.inner=check('Fill inner thigh gap'); self.virtual=check('Morphological groin fold',True); self.rounding=check('Thigh rounding',True)
-        sh.addWidget(self.inner.w); self.inner.w.setToolTip("Uses the rounded inner-knee transition.")
-        for v in (self.virtual,self.rounding): sh.addWidget(v.w)
-        sh.addWidget(QLabel('1.0 = base contribution · 0 = no contribution')); self.bounce=combo(BOUNCE_LABELS.values()); sh.addWidget(QLabel('Bounce · only Normal available')); sh.addWidget(self.bounce.w); self.shading=combo(['Original','Adaptive','Legacy','Geometric']); sh.addWidget(QLabel('Surface shading')); sh.addWidget(self.shading.w); self.field_mode=combo(['Legacy','Continuous']); sh.addWidget(QLabel('Deformation field')); sh.addWidget(self.field_mode.w); self.taubin=check("Taubin displacement smoothing (experimental)"); sh.addWidget(self.taubin.w)
+        advanced_layout.addWidget(self.inner.w); self.inner.w.setToolTip("Uses the rounded inner-knee transition.")
+        for v in (self.virtual,self.rounding): advanced_layout.addWidget(v.w)
+        advanced_layout.addWidget(QLabel('1.0 = base contribution · 0 = no contribution')); self.bounce=combo(BOUNCE_LABELS.values()); advanced_layout.addWidget(QLabel('Bounce · only Normal available')); advanced_layout.addWidget(self.bounce.w); self.shading=combo(['Original','Adaptive','Legacy','Geometric']); advanced_layout.addWidget(QLabel('Surface shading')); advanced_layout.addWidget(self.shading.w); self.field_mode=combo(['Legacy','Continuous']); advanced_layout.addWidget(QLabel('Deformation field')); advanced_layout.addWidget(self.field_mode.w); self.taubin=check("Taubin displacement smoothing (experimental)"); advanced_layout.addWidget(self.taubin.w)
         self.final_reg_group=QGroupBox('Final morphological regularization (experimental)'); self.final_reg_group.setCheckable(True); self.final_reg_group.setChecked(False)
         rl=QFormLayout(self.final_reg_group); self.final_reg_controls={}
         for key,label,default in [('strength','Strength',0.35),('tolerance','Noise tolerance',0.20)]:
             spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,1); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(default)
             rl.addRow(label,spin); self.final_reg_controls[key]=Var(spin)
-        sh.addWidget(self.final_reg_group); sh.addStretch(); actions=QWidget(); al=QVBoxLayout(actions); al.setContentsMargins(0,0,0,0); al.setSpacing(5); sh.addWidget(actions); button(al,'Preview (no buffer writes)',self.preview); button(al,'Apply to mod',self.apply).setObjectName('primary'); button(al,'Restore original',self.restore);
+        advanced_layout.addWidget(self.final_reg_group); sh.addStretch(); actions=QWidget(); al=QHBoxLayout(actions); al.setContentsMargins(0,0,0,0); al.setSpacing(5); l.addWidget(actions); button(al,'Preview (no buffer writes)',self.preview); button(al,'Apply to mod',self.apply).setObjectName('primary'); button(al,'Restore original',self.restore);
         for b in actions.findChildren(QPushButton): b.setMinimumHeight(32); b.setStyleSheet('font-size: 12px; padding: 4px 6px;')
         measures=QWidget(); ml=QFormLayout(measures); right.addTab(measures,'Measurements'); self.lm={}
         for k,t in LANDMARKS: self.lm[k]=Var(QLineEdit()); self.lm[k].w.setPlaceholderText('Automatic'); ml.addRow(t,self.lm[k].w)
-        self.warn=Label(''); self.warn.setWordWrap(True); ml.addRow(self.warn); split.setSizes([520,590,330]); right.setMinimumWidth(275)
-        logbox=QWidget(); logbox.setObjectName("workspacePanel"); logl=QVBoxLayout(logbox); logl.setContentsMargins(12,8,12,10); row=QHBoxLayout(); logl.addLayout(row); log_title=QLabel('Diagnostic log'); log_title.setObjectName('sectionHeading'); row.addWidget(log_title); row.addStretch(); button(row,'Copy',lambda:QApplication.clipboard().setText(self.log.toPlainText())); button(row,'Clear',lambda:self.log.clear()); button(row,'Experiments',self.run_experiment); self.log=QPlainTextEdit(); self.log.setObjectName('diagnosticLog'); self.log.setReadOnly(True); logl.addWidget(self.log); vertical.addWidget(logbox); vertical.setSizes([650,180]); self.status=Label('Select a WWMI mod folder.'); self.status.setObjectName('footer'); l.addWidget(self.status)
+        self.warn=Label(''); self.warn.setWordWrap(True); ml.addRow(self.warn); split.setSizes([560,840]); right.setMinimumWidth(350); split.setStretchFactor(0,1); split.setStretchFactor(1,2); self.workspace_split=split; self.vertical_split=vertical
+        logbox=QWidget(); logbox.setObjectName("workspacePanel"); logl=QVBoxLayout(logbox); logl.setContentsMargins(12,8,12,10); row=QHBoxLayout(); logl.addLayout(row); log_title=QLabel('Diagnostic log'); log_title.setObjectName('sectionHeading'); row.addWidget(log_title); row.addStretch(); button(row,'Copy',lambda:QApplication.clipboard().setText(self.log.toPlainText())); button(row,'Clear',lambda:self.log.clear()); button(row,'Experiments',self.run_experiment); self.console_toggle=QToolButton(); self.console_toggle.setText('Hide log'); self.console_toggle.setCheckable(True); row.addWidget(self.console_toggle); self.log=QPlainTextEdit(); self.log.setObjectName('diagnosticLog'); self.log.setReadOnly(True); logl.addWidget(self.log); vertical.addWidget(logbox); vertical.setSizes([650,180]); self.console_toggle.toggled.connect(self._toggle_console); self.status=Label('Select a WWMI mod folder.'); self.status.setObjectName('footer'); l.addWidget(self.status)
         for title,items in [('File',[('Browse folder',self.pick),('Open folder',self.open_folder),('Exit',self.close)]),('Tools',[('Analyze',self.analyze),('Show / hide',self.toggle_visibility)]),('Help',[('Manual',self.manual),('About',self.about)])]:
             menu=self.menuBar().addMenu(title)
             for text,fn in items: menu.addAction(text,fn)
-        self.set_theme('Dark')
+        self.live_check=QCheckBox('Live Preview'); self.live_check.setToolTip('Preview after release and 600 ms idle; 2 s computation budget. No writes.'); al.insertWidget(0,self.live_check); self.live_status=QLabel('Live off'); al.insertWidget(1,self.live_status); self.set_theme('Dark')
+    def _adopt_live_cache(self,work):
+        src=Path(work,'belly_baseline.pkl')
+        if src.is_file():
+            try: os.replace(src,self._live_cache)
+            except OSError: pass
+
+    def _toggle_console(self, collapsed):
+        if collapsed:
+            self._console_sizes=self.vertical_split.sizes()
+            self.log.hide(); self.console_toggle.setText('Show log')
+            self.vertical_split.setSizes([sum(self._console_sizes), 45])
+        else:
+            self.log.show(); self.console_toggle.setText('Hide log')
+            self.vertical_split.setSizes(getattr(self,'_console_sizes',[650,180]))
+
+    def _setup_live(self):
+        self._live_cache_dir=tempfile.TemporaryDirectory(prefix="thicc-live-cache-"); self._live_cache=Path(self._live_cache_dir.name,"belly_baseline.pkl")
+        self._live_job=None; self._live_generation=0; self._live_drag=set(); self._live_dirty=False
+        self._live_delay=QTimer(self); self._live_delay.setSingleShot(True); self._live_delay.setInterval(600); self._live_delay.timeout.connect(self._start_live)
+        self._live_poll=QTimer(self); self._live_poll.setInterval(40); self._live_poll.timeout.connect(self._poll_live)
+        self.live_check.toggled.connect(self._live_toggle)
+        page=self.workspace_tabs.widget(1)
+        for w in page.findChildren(QSlider):
+            w.sliderPressed.connect(lambda w=w:self._live_pressed(w))
+            w.sliderReleased.connect(lambda w=w:self._live_released(w))
+            w.valueChanged.connect(self._live_changed)
+        for w in page.findChildren(QDoubleSpinBox): w.valueChanged.connect(self._live_changed)
+        for w in page.findChildren(QComboBox): w.currentTextChanged.connect(self._live_changed)
+        for w in page.findChildren(QCheckBox): w.toggled.connect(self._live_changed)
+        for w in page.findChildren(QGroupBox):
+            if w.isCheckable(): w.toggled.connect(self._live_changed)
+        self.belly_advanced.toggled.connect(self._live_changed)
+        self.mod.w.textChanged.connect(lambda _:self._stop_live())
+        for v in self.lm.values(): v.w.textChanged.connect(self._live_changed)
+
+    def _live_toggle(self, enabled):
+        self._stop_live()
+        self.live_status.setText('Live ready' if enabled else 'Live off')
+
+    def _live_pressed(self,w):
+        self._live_drag.add(w); self._live_delay.stop(); self._live_generation+=1
+        if self._live_job: self._live_dirty=True
+
+    def _live_released(self,w):
+        self._live_drag.discard(w)
+        if self._live_dirty and not self._live_drag and self.live_check.isChecked(): self._live_delay.start()
+
+    def _live_changed(self,*args):
+        if not self.live_check.isChecked() or self.busy or self._closing: return
+        self._live_generation+=1; self._live_dirty=True
+        self._live_delay.stop()
+        if not self._live_drag: self._live_delay.start()
+
+    def _stop_live(self):
+        if not hasattr(self,'_live_delay'): return
+        self._live_delay.stop(); self._live_generation+=1; self._live_dirty=False; self._live_drag.clear()
+        if self._live_job:
+            j=self._live_job
+            if j['proc'].poll() is None:
+                try: j['proc'].terminate()
+                except OSError: pass
+            # Poll until the child exits before removing its workspace.
+        self.live_status.setText('Live ready' if self.live_check.isChecked() else 'Live off')
+
+    def _start_live(self):
+        if not self._live_dirty or self._live_drag or self.busy or not self.live_check.isChecked(): return
+        if self._live_job: return  # latest request waits for the previous process to exit
+        if not self.analysis or not self.analysis.get('ready') or self.analyzed_mod!=os.path.abspath(self.mod.get()):
+            self._live_dirty=False; self.live_status.setText('Analyze first'); return
+        try:
+            from live_preview import signature
+            cfg=self.write_cfg(self.analyzed_mod,dry=True)
+            sig=signature(self.analyzed_mod,self.analysis['ini'])
+            work=tempfile.mkdtemp(prefix='thicc-live-'); request=Path(work,'request.json')
+            request.write_text(json.dumps(cfg,ensure_ascii=False),encoding='utf-8')
+            exe=sys.executable
+            if os.path.basename(exe).lower()=='pythonw.exe': exe=os.path.join(os.path.dirname(exe),'python.exe')
+            started=time.monotonic()
+            with open(Path(work,'worker.log'),'wb') as stream:
+                proc=subprocess.Popen([exe,'-u',os.path.join(HERE,'live_preview.py'),self.analyzed_mod,work,str(self._live_cache)],stdout=stream,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            self._live_job=dict(proc=proc,work=work,start=started,generation=self._live_generation,mod=self.analyzed_mod,signature=sig,expired=False,config=cfg)
+            self._live_dirty=False; self.live_status.setText('Live computing…'); self._live_poll.start()
+        except Exception:
+            if 'work' in locals(): shutil.rmtree(work,ignore_errors=True)
+            self._live_dirty=False; self.live_status.setText('Live error'); self.say('[Live] '+traceback.format_exc())
+
+    def _poll_live(self):
+        j=self._live_job
+        if not j: self._live_poll.stop(); return
+        elapsed=time.monotonic()-j['start']; proc=j['proc']
+        if proc.poll() is None:
+            if j['generation']!=self._live_generation or elapsed>=2.0:
+                j['expired']=elapsed>=2.0 and j['generation']==self._live_generation
+                try: proc.kill()
+                except OSError: pass
+            return
+        self._live_job=None; self._live_poll.stop()
+        try:
+            current=j['generation']==self._live_generation and not self._live_drag and self.live_check.isChecked() and not self.busy and self.analyzed_mod==j['mod'] and os.path.abspath(self.mod.get())==j['mod'] and self.analysis and self.analysis.get('ready')
+            if not current: return
+            if j['expired'] or elapsed>2.0:
+                self.live_check.setChecked(False); self.live_status.setText('Live >2 s — use Preview'); self.say('[Live] Budget exceeded; automatic preview disabled. Manual Preview remains available.\n'); return
+            if proc.returncode: raise RuntimeError(Path(j['work'],'worker.log').read_text(encoding='utf-8',errors='replace')[-2000:])
+            from live_preview import signature
+            if signature(j['mod'],self.analysis['ini'])!=j['signature']:
+                self.live_status.setText('Mod changed — Analyze'); return
+            import numpy as np
+            result=np.load(Path(j['work'],'positions.npy'),allow_pickle=False)
+            self._adopt_live_cache(j['work'])
+            self.preview_positions=result; self.viewer_mode.set('Preview'); self.show_full_body(live=True,live_started=j['start']); self.live_status.setText(f'Live rendering | {elapsed:.2f} s'); self.say(f'[Live] Preview computed in {elapsed:.3f} s (render excluded).\n[Live] amounts={j["config"].get("amounts",{})} belly={j["config"].get("belly_morphology",{})}\n')
+        except Exception:
+            self.live_check.setChecked(False); self.live_status.setText('Live error — use Preview'); self.say('[Live] '+traceback.format_exc())
+        finally:
+            shutil.rmtree(j['work'],ignore_errors=True)
+            if self._live_dirty and not self._live_drag and self.live_check.isChecked() and not self._live_delay.isActive(): self._live_delay.start()
+
     def set_theme(self,mode):
         dark=mode=='Dark'
         bg,panel,field,alt,edge,fg,muted,hover,selected,accent = (
@@ -377,12 +517,13 @@ class App(QMainWindow):
             self.say('\n[Viewer] Startup warm-up failed:\n'+traceback.format_exc())
         finally:self.busy=False
 
-    def show_full_body(self):
+    def show_full_body(self,live=False,live_started=None):
         if not self.analysis or not self.tree.rowCount():return
         if self.tree.item(0,'text')!=FULL_BODY:return
-        self.tree.clearSelection(); self.tree.selectRow(0); self.view3d()
+        self.tree.clearSelection(); self.tree.selectRow(0); self.view3d(live=live,live_started=live_started)
 
-    def view3d(self):
+    def view3d(self,live=False,live_started=None):
+        if not live: self._stop_live()
         if self.busy:return
         if not self.analysis or self.analyzed_mod!=os.path.abspath(self.mod.get()): return messagebox.showinfo('Viewer','Analyze the mod first.')
         names=[self.tree.item(i,'text') for i in self.tree.selection()]
@@ -396,31 +537,58 @@ class App(QMainWindow):
             except Exception as e:
                 self.say('[Full Body] '+str(e)+'\n'); return
         if not names:return messagebox.showinfo('Viewer','Select one or more parts.')
-        self.busy=True
+        if not live: self.busy=True
+        generation=self._live_generation
         mod=self.analyzed_mod; ini=self.analysis['ini']; wire=self.wire.get(); mode=self.viewer_mode.get(); preview=self.preview_positions if mode in ('Preview','Comparison','Displacement') else None
         if mode=='Preview' and preview is None:
-            self.busy=False; return messagebox.showinfo('Viewer','Run Preview first.')
+            if not live: self.busy=False; return messagebox.showinfo('Viewer','Run Preview first.')
+            return
         self.viewer_status.setText('3D engine: loading geometry…')
         self.say('\n[Viewer] Loading geometry…\n')
         started=time.monotonic()
         def load():
+            if live and (self.busy or generation!=self._live_generation or self._closing): return
+            if live and live_started is not None and time.monotonic()-live_started>=2.0:
+                self.live_check.setChecked(False); self.live_status.setText('Live >2 s — use Preview'); self.say('[Live] Display deadline exceeded before rendering.\n'); return
             try:
                 # Retry initialization only if startup warm-up failed.
                 self.initialize_viewer()
+                view_key=(mod,ini,tuple(names),wire)
+                same_view=self._viewer_has_geometry and getattr(self,"_view_key",None)==view_key
+                camera=self.plot.camera_position if same_view else None
+                projection=(self.plot.camera.parallel_projection,self.plot.camera.parallel_scale,self.plot.camera.view_angle) if same_view else None
                 self._viewer_has_geometry=False
-                self._populate_viewer(self.plot,mod,ini,names,wire=wire,mode=mode,preview_positions=preview)
+                if live and same_view and getattr(self,'_view_meshes',None) and mode=='Preview':
+                    from viewer3d import update_preview
+                    update_preview(self._view_meshes,preview)
+                else:
+                    self._view_meshes=self._populate_viewer(self.plot,mod,ini,names,wire=wire,mode=mode,preview_positions=preview)
+                self._view_key=view_key
                 self._viewer_has_geometry=True
+                if camera is not None:
+                    self.plot.camera_position=camera
+                    self.plot.camera.parallel_projection,self.plot.camera.parallel_scale,self.plot.camera.view_angle=projection
                 self.plot.render()
                 elapsed=time.monotonic()-started
                 self.viewer_status.setText(f'3D engine: ready | {elapsed:.2f} s')
                 self.say(f'[Viewer] Ready in {elapsed:.2f} s.\n')
+                if live and live_started is not None:
+                    total=time.monotonic()-live_started
+                    self.say(f'[Live] End-to-end {total:.3f} s (after debounce).\n')
+                    if total>2.0:
+                        self.live_check.setChecked(False); self.live_status.setText('Live >2 s — use Preview')
+                    else: self.live_status.setText(f'Live ready | {total:.2f} s')
             except Exception:
                 self.viewer_status.setText('3D engine: error — check diagnostic log.')
                 self.say('\n[Viewer] '+traceback.format_exc())
-                messagebox.showerror('Viewer','Could not display geometry. Check the log.')
-            finally:self.busy=False
+                if live:
+                    self.live_check.setChecked(False); self.live_status.setText('Live viewer error')
+                else: messagebox.showerror('Viewer','Could not display geometry. Check the log.')
+            finally:
+                if not live: self.busy=False
         QTimer.singleShot(50,load)
     def run_experiment(self):
+        self._stop_live()
         if self.busy:return
         from experiment_runner import discover, invocation
         root=Path(HERE).parent/'experiments'
@@ -440,13 +608,23 @@ class App(QMainWindow):
         work=tempfile.mkdtemp(prefix='thicc-experiment-'); log=os.path.join(work,'experiment.log')
         try:
             cmd,env=invocation(script,root,HERE,m,ini)
+            if script.name=='32_belly_live_apply.py':
+                if not self.analysis or self.analyzed_mod!=os.path.abspath(m) or not self.analysis.get('ready'):
+                    raise ValueError('Analyze the selected mod and resolve anatomy before opening Belly Lab.')
+                snapshot=self.write_cfg(m,dry=True)
+                # Include every current slider, including values equal to the preset.
+                snapshot['amounts']={k:float(self.amount[k].get()) for k,_ in SLIDERS}
+                cfg_path=Path(work)/'live_config.json'
+                cfg_path.write_text(json.dumps(snapshot,ensure_ascii=False),encoding='utf-8')
+                env['THICC_LIVE_CONFIG']=str(cfg_path)
+                env['THICC_APPLIED_MARKER']=str(Path(work)/'applied.json')
             with open(log,'wb') as f:
                 proc=subprocess.Popen(cmd,cwd=str(root),env=env,stdout=f,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         except Exception:
             shutil.rmtree(work,ignore_errors=True); return messagebox.showerror('Experiments',traceback.format_exc())
         self.busy=True; self.main.setEnabled(False); self.menuBar().setEnabled(False)
         self.status.setText('Experiment working…'); self.say(f'\n===== EXPERIMENT: {name} =====\nMod: {m or "(none)"}\n')
-        self.job=dict(proc=proc,work=work,log=log,start=time.monotonic(),offset=0,decoder=codecs.getincrementaldecoder('utf-8')(errors='replace'),cancelled=False,mode='experiment',name=name)
+        self.job=dict(proc=proc,work=work,log=log,start=time.monotonic(),offset=0,decoder=codecs.getincrementaldecoder('utf-8')(errors='replace'),cancelled=False,mode='experiment',name=name,mod=m,interactive_write=script.name=='32_belly_live_apply.py')
         self.overlay=QDialog(self); self.overlay.setWindowTitle('Experiments'); self.overlay.setWindowModality(Qt.WindowModality.ApplicationModal)
         layout=QVBoxLayout(self.overlay); layout.addWidget(QLabel(name)); self.elapsed=QLabel('0 s'); layout.addWidget(self.elapsed)
         cancel=QPushButton('Cancel experiment'); layout.addWidget(cancel)
@@ -454,7 +632,13 @@ class App(QMainWindow):
             j=self.job
             if j and j['mode']=='experiment' and j['proc'].poll() is None:
                 j['cancelled']=True; j['proc'].terminate(); cancel.setEnabled(False)
-        cancel.clicked.connect(stop); self.overlay.reject=stop; self.overlay.show()
+        cancel.clicked.connect(stop)
+        if self.job['interactive_write']:
+            # Do not terminate a writer in the middle of replacing buffers.
+            cancel.setEnabled(False); cancel.setText('Close Belly Lab to finish')
+            self.overlay.reject=lambda:None
+        else: self.overlay.reject=stop
+        self.overlay.show()
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll_experiment); self.timer.start(100)
 
     def poll_experiment(self):
@@ -471,10 +655,17 @@ class App(QMainWindow):
         from experiment_runner import completion_message
         self.say(completion_message(j['name'], status, elapsed, j['proc'].returncode))
         self.status.setText(f'{j["name"]} — {status.lower()} — {elapsed:.2f} s')
+        applied=Path(j['work'])/'applied.json'
+        if j.get('interactive_write') and applied.is_file():
+            self.preview_positions=None
+            self.viewer_mode.set('Current')
+            self.status.setText('Experimental Belly applied. Press F10 in game.')
+            self.show_full_body()
         shutil.rmtree(j['work'],ignore_errors=True)
 
     def start_analysis(self,m,done,force=False): self.launch(m,'diagnose',done,force=force)
     def run_task(self,mode,done=None,save=True):
+        self._stop_live()
         if self.busy:return
         m=self._check_mod()
         if not m:return
@@ -522,6 +713,7 @@ class App(QMainWindow):
             else:
                 self.status.setText({'dry':'Preview ready. Check the log.','write':'Applied. Press F10 in game.','restore':'Original restored.'}[j['mode']])
                 if j['mode']=='dry':
+                    self._adopt_live_cache(j['work'])
                     self.preview_positions=res.get('preview_positions') if isinstance(res,dict) else None
                     if self.preview_positions is None:
                         self.status.setText('Preview unavailable. Check the log.'); return
@@ -594,6 +786,7 @@ class App(QMainWindow):
     def valid_folder(self,m):
         return any(os.path.isfile(os.path.join(m,'Meshes',n)) for n in ('Position.buf','Position.buf.orig'))
     def analyze_library(self,force=False):
+        self._stop_live()
         if self.busy:return
         if not self.library:return self.manage_library()
         self.batch={'paths':list(self.library),'total':len(self.library),'index':0,'original':self.mod.get(),'force':force,'sources':[]}
@@ -627,7 +820,7 @@ class App(QMainWindow):
         finally:self.analysis=old
     def manual(self): self.show_text('Manual',MANUAL)
     def about(self):
-        info='Thicc Tool 008 ARF test / engine '+te.VERSION+'\nPython: '+sys.version+'\nExecutable: '+sys.executable
+        info='Thicc Tool 028 Workspace / engine '+te.VERSION+'\nPython: '+sys.version+'\nExecutable: '+sys.executable
         for name in ('numpy','scipy','PySide6','pyvista','pyvistaqt','vtk'):
             try:info+='\n'+name+': '+str(getattr(importlib.import_module(name),'__version__','Available'))
             except Exception as e:info+='\n'+name+': '+str(e)
@@ -642,20 +835,27 @@ class App(QMainWindow):
         d=QDialog(self); d.setWindowTitle(title); l=QVBoxLayout(d); box=QPlainTextEdit(text); box.setReadOnly(True); l.addWidget(box); d.resize(760,540); d.exec()
     def closeEvent(self,event):
         if self.busy:event.ignore();return
-        self._closing=True
+        self._stop_live(); self._save_settings(); self._closing=True
+        if self._live_job:
+            j=self._live_job; j["proc"].kill(); j["proc"].wait(); shutil.rmtree(j["work"],ignore_errors=True); self._live_job=None
+        self._live_cache_dir.cleanup()
         if self.plot is not None:self.plot.close()
         event.accept()
     def _load_settings(self):
         try:
             s = json.load(open(SETTINGS, encoding="utf-8"))
             self.library_last_dir=s.get("library_last_dir", ""); self.mod.set(s.get("last_mod", "")); self.library=list(dict.fromkeys(x for x in s.get("library",[]) if isinstance(x,str)))
+            if s.get("workspace_sizes"): self.workspace_split.setSizes(s["workspace_sizes"])
+            if s.get("vertical_sizes"): self.vertical_split.setSizes(s["vertical_sizes"])
+            self.console_toggle.setChecked(bool(s.get("console_collapsed",False)))
+            self.workspace_tabs.setCurrentIndex(max(0,min(2,int(s.get("workspace_tab",0)))))
         except Exception:
             pass
         self.apply_preset()
 
     def _save_settings(self):
         try:
-            json.dump({"last_mod": self.mod.get(), "library": self.library, "library_last_dir": self.library_last_dir}, open(SETTINGS, "w", encoding="utf-8"))
+            json.dump({"last_mod": self.mod.get(), "library": self.library, "library_last_dir": self.library_last_dir, "workspace_sizes": self.workspace_split.sizes(), "vertical_sizes": self.vertical_split.sizes(), "console_collapsed": self.console_toggle.isChecked(), "workspace_tab": self.workspace_tabs.currentIndex()}, open(SETTINGS, "w", encoding="utf-8"))
         except Exception:
             pass
 
@@ -720,7 +920,11 @@ class App(QMainWindow):
                           if abs(self.amount[k].get() - base[k]) > 1e-6}
         cfg["inner_fill"] = bool(self.inner.get())
         cfg["inner_gap_mode"] = "Rounded transition"
-        cfg["waist_morphology"] = dict(enabled=self.waist_group.isChecked(), **{k:v.get() for k,v in self.waist_controls.items()})
+        cfg.pop("waist_morphology", None)
+        from morphology.belly import basic_parameters, parameters
+        belly_values = {k:v.value() for k,v in self.belly_controls.items()} if self.belly_advanced.isChecked() else basic_parameters(self.belly_amount.value())
+        cfg["belly_morphology"] = dict(amount=self.belly_amount.value(), advanced=self.belly_advanced.isChecked(), **belly_values)
+        parameters(cfg["belly_morphology"])
         cfg["virtual_inguinal"] = bool(self.virtual.get())
         cfg["surface_rounding"] = bool(self.rounding.get())
         if self.analysis and self.analyzed_mod == os.path.abspath(m):
@@ -746,6 +950,7 @@ class App(QMainWindow):
         json.dump(cfg, open(self.cfg_path(m), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
     def analyze(self, save_current=True, force=False):
+        self._stop_live()
         if self.busy:
             return
         m = self._check_mod()
@@ -782,6 +987,7 @@ class App(QMainWindow):
                 self.say('\n[Force analyze] Accepted configuration saved; analysis reused.\n')
             if self.plot is not None:self.plot.clear(); self.plot.render()
             self.analysis = res
+            self._viewer_has_geometry=False
             self.preview_positions=None
             self.analyzed_mod = os.path.abspath(m)
             self.anatomy = set(res["cfg"].get("anatomy", []))
@@ -817,9 +1023,12 @@ class App(QMainWindow):
                 if k in self.amount:
                     self.amount[k].set(v)
             self.inner.set(bool(cfg.get("inner_fill", False)))
-            waist=cfg.get("waist_morphology", {})
-            self.waist_group.setChecked(bool(waist.get("enabled",False)))
-            for k,v in self.waist_controls.items(): v.set(waist.get(k,1.0))
+            from morphology.belly import basic_parameters
+            belly=cfg.get("belly_morphology", {})
+            self.belly_advanced.setChecked(False)
+            self.belly_amount.setValue(belly.get("amount",0.))
+            self.belly_advanced.setChecked(bool(belly.get("advanced",False)))
+            for k,v in basic_parameters(self.belly_amount.value()).items(): self.belly_controls[k].setValue(belly.get(k,v))
             self.virtual.set(bool(cfg.get("virtual_inguinal", True)))
             self.rounding.set(bool(cfg.get("surface_rounding", True)))
             over = cfg.get("landmarks", {})
@@ -832,6 +1041,7 @@ class App(QMainWindow):
             self.warn.config(foreground="#18733c" if res.get("ready") else "#b00000", text=status + "\n" + "\n".join("Warning: " + w for w in res["warnings"]))
             self.status.config(text="Analysis ready." if res.get("ready") else "Analysis incomplete: review parts and analyze again.")
             self.analysis_ui_baseline=self.write_cfg(m,dry=True)
+            self._stop_live()  # loading saved values is not a user edit
             if self.batch is None:
                 self.viewer_mode.set("Current"); QTimer.singleShot(0,self.show_full_body)
             return True
@@ -850,6 +1060,7 @@ class App(QMainWindow):
         return dlg.exec()==QDialog.DialogCode.Accepted
 
     def toggle_visibility(self):
+        self._stop_live()
         if self.busy or not self.analysis or not self.analyzed_mod:
             return
         if os.path.abspath(self.mod.get()) != self.analyzed_mod:
@@ -875,6 +1086,7 @@ class App(QMainWindow):
         self.status.config(text='Visibility saved in INI. Press F10 in game.')
 
     def edit_label(self, row, col):
+        self._stop_live()
         if self.busy or col != 1 or not self.analyzed_mod: return
         if self.analyzed_mod != os.path.abspath(self.mod.get()): return
         if self.tree.item(row,"text")==FULL_BODY:return
@@ -887,6 +1099,7 @@ class App(QMainWindow):
         self.tree.set(row,"label",value.strip())
 
     def set_role(self, role):
+        self._stop_live()
         if self.busy or self.analyzed_mod != os.path.abspath(self.mod.get()): return
         sel = [i for i in self.tree.selection() if self.tree.item(i,"text")!=FULL_BODY]
         if not sel:
@@ -899,6 +1112,7 @@ class App(QMainWindow):
             self.refresh_role_tooltip(i)
 
     def set_anatomy(self, include):
+        self._stop_live()
         if self.busy or self.analyzed_mod != os.path.abspath(self.mod.get()):
             return
         rows=[i for i in self.tree.selection() if self.tree.item(i,"text")!=FULL_BODY]
@@ -913,6 +1127,7 @@ class App(QMainWindow):
             self.tree.set(i, "anatomy", "Yes" if include else "No")
 
     def save_anatomy(self):
+        self._stop_live()
         if self.busy:
             return
         m = self._check_mod()
@@ -935,6 +1150,7 @@ class App(QMainWindow):
         self.analyze_saved()
 
     def reset_auto(self):
+        self._stop_live()
         if self.busy:
             return
         m = self._check_mod()

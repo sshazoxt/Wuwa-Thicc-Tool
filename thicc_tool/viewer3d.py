@@ -8,7 +8,7 @@ def load_positions(path):
         raise ValueError('Invalid Position.buf: '+path)
     return a.reshape(-1,3)
 
-def geometry(mod,ini,names,original=False,mode=None,preview_positions=None):
+def geometry(mod,ini,names,original=False,mode=None,preview_positions=None,include_ids=False):
     import thicc_edit as te
     meta={}; draws=te.parse_draws(ini,metadata=meta)
     folder=os.path.join(mod,'Meshes'); path=os.path.join(folder,'Position.buf')
@@ -29,7 +29,8 @@ def geometry(mod,ini,names,original=False,mode=None,preview_positions=None):
         t=idx[s:s+c].astype(np.int64)+base
         if t.min()<0 or t.max()>=len(p): raise ValueError('Index outside Position.buf: '+name)
         ids,local=np.unique(t,return_inverse=True)
-        out.append((name,p[ids],local.reshape(-1,3),None if o is None else o[ids]))
+        item=(name,p[ids],local.reshape(-1,3),None if o is None else o[ids])
+        out.append(item+(ids,) if include_ids else item)
     return out
 
 def displacement(p,o):
@@ -38,12 +39,13 @@ def displacement(p,o):
 def populate(plot,mod,ini,names,wire=False,original=False,mode=None,preview_positions=None):
     import pyvista as pv
     mode=mode or ('Original' if original else 'Current')
-    data=geometry(mod,ini,names,mode=mode,preview_positions=preview_positions)
+    data=geometry(mod,ini,names,mode=mode,preview_positions=preview_positions,include_ids=True)
     if not data: raise ValueError("No resolved geometry in the default configuration.")
     plot.clear(); plot.set_background('#202733')
     style='wireframe' if wire else 'surface'
-    maximum=max((float(displacement(p,o).max()) for _,p,_,o in data),default=0) if mode=='Displacement' else 0
-    for i,(name,p,t,o) in enumerate(data):
+    maximum=max((float(displacement(p,o).max()) for _,p,_,o,_ in data),default=0) if mode=='Displacement' else 0
+    handles=[]
+    for i,(name,p,t,o,ids) in enumerate(data):
         faces=np.column_stack((np.full(len(t),3),t)).ravel()
         def mesh(points): return pv.PolyData(points,faces)
         if mode=='Comparison':
@@ -53,11 +55,20 @@ def populate(plot,mod,ini,names,wire=False,original=False,mode=None,preview_posi
             d=displacement(p,o); m=mesh(p); m['Displacement']=d
             plot.add_mesh(m,scalars='Displacement',cmap='inferno',clim=(0,maximum or 1),style=style,show_scalar_bar=i==0,scalar_bar_args={'title':'Displacement (model units)'})
         else:
-            plot.add_mesh(mesh(o if mode=='Original' else p),color=['#b7c9dd','#e6af85','#8dcbb5','#c4a7e7'][i%4],style=style,label=name)
+            m=mesh(o if mode=='Original' else p)
+            plot.add_mesh(m,copy_mesh=False,color=['#b7c9dd','#e6af85','#8dcbb5','#c4a7e7'][i%4],style=style,label=name)
+            if mode in ('Current','Preview'): handles.append((ids,m))
     if mode=='Displacement': plot.add_text(f'Maximum: {maximum:.4f} model units',font_size=10)
     elif mode=='Comparison' or len(data)<=12: plot.add_legend()
     else: plot.add_text(f'{len(data)} resolved parts',font_size=10)
     plot.add_axes(); plot.view_isometric(); plot.reset_camera()
+    return handles
+
+def update_preview(handles,positions):
+    q=np.asarray(positions)
+    if q.ndim!=2 or q.shape[1]!=3 or not np.isfinite(q).all(): raise ValueError("Invalid live positions")
+    for ids,mesh in handles:
+        mesh.points=q[ids]
 
 def show(mod,ini,names,wire=False,original=False,mode=None):
     import pyvista as pv
