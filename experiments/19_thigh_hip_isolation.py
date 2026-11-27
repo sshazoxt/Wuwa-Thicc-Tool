@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Compare production thighs, thighs without hip field and local prototype.', 'objective': 'Isolate thigh and hip interactions.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from _regional_morph import *
 
 if __name__=='__main__':

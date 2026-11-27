@@ -1,4 +1,7 @@
 """Isolate redundant reference samples without changing moving/frozen roles."""
+
+EXPERIMENT_INFO = {'description': 'Compare redundant versus canonical reference samples.', 'objective': 'Test influence of redundant reference geometry.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from scipy.spatial import cKDTree
 import numpy as np
 from preview_no_seam_guard import sandbox, geometry, load_cfg

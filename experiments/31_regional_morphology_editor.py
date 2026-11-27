@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Interactive regional morphology editor.', 'objective': 'Adjust experimental fields and inspect previews.', 'visual': 'Interactive viewer', 'batch': False, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from _refinement_lab import *
 
 def main():

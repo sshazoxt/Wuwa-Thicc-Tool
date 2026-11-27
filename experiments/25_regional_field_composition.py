@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Compare individual regional fields and combined fields.', 'objective': 'Identify composition effects.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import os
 import numpy as np
 from morphology import PreviewSession

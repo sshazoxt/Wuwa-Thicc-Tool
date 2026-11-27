@@ -31,6 +31,7 @@ def baseline_key(cfg):
     import thicc_edit as te
     cfg={**te.DEFAULT_CFG, **cfg}
     cfg.pop('belly_morphology',None)
+    cfg.pop('engine_profiles',None)  # active engine values are already present at the top level
     cfg.pop('waist_morphology',None)  # production does not execute experimental Waist
     return json.dumps(cfg,sort_keys=True,ensure_ascii=False,allow_nan=False)
 

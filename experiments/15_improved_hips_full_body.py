@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Compare original and improved hip fields on the full model.', 'objective': 'Inspect garment and body alignment.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from _hip_sweep import *
 if __name__=='__main__':
     with sandbox() as (root,ini):

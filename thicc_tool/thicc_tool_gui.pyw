@@ -4,10 +4,11 @@ import codecs,os,sys,json,subprocess,tempfile,pickle,time,shutil,traceback,struc
 from pathlib import Path
 os.environ['QT_API']='pyside6'
 from PySide6.QtCore import Qt,QTimer,QUrl,QItemSelectionModel
-from PySide6.QtGui import QDesktopServices,QColor,QTextCursor
+from PySide6.QtGui import QDesktopServices,QColor,QTextCursor,QActionGroup
 from PySide6.QtWidgets import *
 HERE=os.path.dirname(os.path.abspath(__file__))
 from anatomical_reconstruction import FULL_BODY
+from morphology_defaults import with_advanced_defaults, active_profile, switch_profile
 sys.path.insert(0,HERE)
 class FocusWheelCombo(QComboBox):
     def wheelEvent(self, event):
@@ -124,7 +125,7 @@ Keep backups of your mods."""
 
 class App(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.8 · Workspace'); self.resize(1500,900); self.setMinimumSize(1000,650)
+        super().__init__(); self.setWindowTitle('Thicc Tool — WWMI | 2.2.10 · Workspace'); self.resize(1500,900); self.setMinimumSize(1000,650)
         self.preview_positions=None; self.busy=False; self.job=None; self.analysis=None; self.analyzed_mod=None; self.anatomy=set(); self.auto_lm={}; self.pending_mod=None; self.plot=None; self._populate_viewer=None; self._viewer_has_geometry=False; self._closing=False; self.library=[]; self.batch=None; self.library_last_dir=""
         self._build(); self._load_settings(); self._setup_live()
     def _build(self):
@@ -135,7 +136,6 @@ class App(QMainWindow):
             w=FocusWheelCombo(); w.setFocusPolicy(Qt.FocusPolicy.StrongFocus); w.addItems(list(items)); return Var(w)
         def check(text,value=False):
             w=QCheckBox(text); w.setChecked(value); return Var(w)
-        header=QHBoxLayout(); l.addLayout(header); title=QLabel('Thicc Tool'); title.setObjectName('heading'); header.addWidget(title); header.addWidget(QLabel('Morphology editor · WWMI')); header.addStretch(); self.theme=combo(['Dark','Light']); header.addWidget(self.theme.w); self.theme.w.currentTextChanged.connect(self.set_theme)
         bar=QHBoxLayout(); l.addLayout(bar); self.mod=Var(QLineEdit()); self.mod.w.setPlaceholderText('Mod folder'); bar.addWidget(self.mod.w,1); button(bar,'Browse…',self.pick); self.analyze_btn=QToolButton(); self.analyze_btn.setText('Analyze'); self.analyze_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup); self.analyze_btn.clicked.connect(lambda checked=False:self.analyze()); am=QMenu(self.analyze_btn); am.addAction('Force analyze',lambda:self.analyze(force=True)); am.addSeparator(); am.addAction('Analyze library',lambda:self.analyze_library()); am.addAction('Force analyze library',lambda:self.analyze_library(force=True)); self.analyze_btn.setMenu(am); bar.addWidget(self.analyze_btn); button(bar,'Library',self.manage_library); button(bar,'Open folder',self.open_folder)
         vertical=QSplitter(Qt.Orientation.Vertical); l.addWidget(vertical,1); split=QSplitter(Qt.Orientation.Horizontal); vertical.addWidget(split)
         left=QWidget(); left.setObjectName("workspacePanel"); ll=QVBoxLayout(left); ll.setContentsMargins(12,12,12,12); ll.setSpacing(8); wardrobe_title=QLabel("Wardrobe"); wardrobe_title.setObjectName("sectionHeading"); ll.addWidget(wardrobe_title)
@@ -151,11 +151,18 @@ class App(QMainWindow):
         self.viewer_status=QLabel("3D engine: starting…"); self.viewer_status.setWordWrap(True); cl.addWidget(self.viewer_status)
         self.viewhost=QFrame(); self.viewhost.setObjectName("viewerHost"); self.viewlayout=QVBoxLayout(self.viewhost); self.viewlayout.setContentsMargins(0,0,0,0); self.placeholder=QLabel('Analyze a mod and select one or more parts.'); self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter); self.placeholder.setWordWrap(True); self.viewlayout.addWidget(self.placeholder,1); cl.addWidget(self.viewhost,1)
         row=QHBoxLayout(); cl.addLayout(row); button(row,'Front',lambda:self.camera('xz')); button(row,'Side',lambda:self.camera('yz')); button(row,'Perspective',lambda:self.camera('iso')); button(row,'Fit',lambda:self.camera('fit')); button(row,'Screenshot',self.viewer_screenshot).setToolTip('Save a high-resolution PNG of the current 3D view.')
-        right=QTabWidget(); right.setObjectName("inspector"); self.workspace_tabs=right; split.addWidget(right); split.addWidget(center); right.addTab(left,"Wardrobe"); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(QLabel('Base shape')); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}
+        right=QTabWidget(); right.setObjectName("inspector"); self.workspace_tabs=right; split.addWidget(right); split.addWidget(center); right.addTab(left,"Wardrobe"); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.morph_engine=combo(['Legacy','Direct Section']); self.morph_engine.w.hide(); self.engine_tabs=QTabBar(); self.engine_tabs.addTab('Legacy'); self.engine_tabs.addTab('Direct Section'); sh.addWidget(self.engine_tabs)
+        self.direct_warning=QWidget(); warning_layout=QHBoxLayout(self.direct_warning); warning_layout.setContentsMargins(0,0,0,0); warning_layout.setSpacing(8)
+        warning_icon=QLabel(); warning_icon.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning).pixmap(20,20)); warning_layout.addWidget(warning_icon,0,Qt.AlignmentFlag.AlignTop)
+        warning_text=QLabel('Experimental engine — Direct Section is under development. Deformation artifacts may occur.'); warning_text.setObjectName('warning'); warning_text.setWordWrap(True); warning_layout.addWidget(warning_text,1); sh.addWidget(self.direct_warning); self.direct_warning.hide()
+        self.engine_profiles={}; self._engine_loading=False; self.morph_engine.w.setToolTip('Direct Section: anatomical Hips and Thighs; Glutes and Calves retain their original fields.'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(QLabel('Base shape')); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}; self.depth_amount={}; self.width_labels={}; self.depth_rows={}
         for k,t in SLIDERS:
             if k in ('butt','thighs'):
                 heading=QLabel('Pelvis' if k=='butt' else 'Legs'); heading.setObjectName('sectionHeading'); sh.addWidget(heading)
-            sh.addWidget(QLabel(t)); row=QHBoxLayout(); sh.addLayout(row); slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus); slider.setRange(0,500 if k=='hips' else 200); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,5 if k=='hips' else 2); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1); slider.setValue(100); slider.valueChanged.connect(lambda v,s=spin:s.setValue(v/100)); spin.valueChanged.connect(lambda v,s=slider:s.setValue(round(v*100))); row.addWidget(slider,1); row.addWidget(spin); self.amount[k]=Var(spin)
+            label=QLabel(t); sh.addWidget(label); self.width_labels[k]=(label,t); row=QHBoxLayout(); sh.addLayout(row); slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus); slider.setRange(0,500 if k=='hips' else 200); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,5 if k=='hips' else 2); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1); slider.setValue(100); slider.valueChanged.connect(lambda v,s=spin:s.setValue(v/100)); spin.valueChanged.connect(lambda v,s=slider:s.setValue(round(v*100))); row.addWidget(slider,1); row.addWidget(spin); self.amount[k]=Var(spin)
+            if k in ('hips','thighs'):
+                panel=QWidget(); layout=QVBoxLayout(panel); layout.setContentsMargins(0,0,0,0); layout.addWidget(QLabel(t+' Depth (Y)')); r=QHBoxLayout(); layout.addLayout(r)
+                d=FocusWheelSpin(); d.setRange(0,5 if k=='hips' else 2); d.setDecimals(2); d.setSingleStep(.05); sl=FocusWheelSlider(Qt.Orientation.Horizontal); sl.setRange(0,500 if k=='hips' else 200); sl.valueChanged.connect(lambda v,s=d:s.setValue(v/100)); d.valueChanged.connect(lambda v,s=sl:s.setValue(round(v*100))); r.addWidget(sl,1); r.addWidget(d); sh.addWidget(panel); self.depth_amount[k]=Var(d); self.depth_rows[k]=panel; panel.hide()
         heading=QLabel("Abdomen"); heading.setObjectName("sectionHeading"); sh.addWidget(heading)
         # Belly basic and advanced share one persisted configuration, not preset amounts.
         from morphology.belly import LIMITS, basic_parameters
@@ -189,6 +196,17 @@ class App(QMainWindow):
         for key,label,lo,hi,default in [('upper','Upper spread',.5,2.5,1.4),('lower','Lower spread',.5,2.5,1.65),('peak','Peak height offset',-.3,.3,0.)]:
             spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(lo,hi); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(default); pl.addRow(label,spin); self.hip_profile[key]=Var(spin)
         advanced_layout.addWidget(profile)
+        def engine_options():
+            legacy=self.morph_engine.get()=='Legacy'
+            self.direct_warning.setVisible(not legacy)
+            for k,panel in self.depth_rows.items():
+                panel.setVisible(not legacy); label,title=self.width_labels[k]; label.setText(title if legacy else title+' Width (X)')
+            self.hip_profile_group.setEnabled(legacy)
+            self.relative_silhouette.w.setEnabled(legacy)
+            self.silhouette_strength.w.setEnabled(legacy)
+        self.morph_engine.w.currentTextChanged.connect(lambda _:engine_options())
+        engine_options()
+        self.engine_tabs.currentChanged.connect(self._switch_morphology_engine)
         self.direction = {}
         directional = QGroupBox('Directional expansion (experimental)'); directional.setCheckable(True); directional.setChecked(False)
         dl=QGridLayout(directional); dl.addWidget(QLabel('Region'),0,0); dl.addWidget(QLabel('X · Width'),0,1); dl.addWidget(QLabel('Y · Depth'),0,2)
@@ -204,6 +222,7 @@ class App(QMainWindow):
         self.inner=check('Fill inner thigh gap'); self.virtual=check('Morphological groin fold',True); self.rounding=check('Thigh rounding',True)
         advanced_layout.addWidget(self.inner.w); self.inner.w.setToolTip("Uses the rounded inner-knee transition.")
         for v in (self.virtual,self.rounding): advanced_layout.addWidget(v.w)
+        self.rounding.w.setToolTip('Legacy thigh rounding is retained but skipped when Direct Thighs is active. Final morphological regularization remains available.')
         advanced_layout.addWidget(QLabel('1.0 = base contribution · 0 = no contribution')); self.bounce=combo(BOUNCE_LABELS.values()); advanced_layout.addWidget(QLabel('Bounce · only Normal available')); advanced_layout.addWidget(self.bounce.w); self.shading=combo(['Original','Adaptive','Legacy','Geometric']); advanced_layout.addWidget(QLabel('Surface shading')); advanced_layout.addWidget(self.shading.w); self.field_mode=combo(['Legacy','Continuous']); advanced_layout.addWidget(QLabel('Deformation field')); advanced_layout.addWidget(self.field_mode.w); self.taubin=check("Taubin displacement smoothing (experimental)"); advanced_layout.addWidget(self.taubin.w)
         self.final_reg_group=QGroupBox('Final morphological regularization (experimental)'); self.final_reg_group.setCheckable(True); self.final_reg_group.setChecked(False)
         rl=QFormLayout(self.final_reg_group); self.final_reg_controls={}
@@ -214,12 +233,20 @@ class App(QMainWindow):
         for b in actions.findChildren(QPushButton): b.setMinimumHeight(32); b.setStyleSheet('font-size: 12px; padding: 4px 6px;')
         measures=QWidget(); ml=QFormLayout(measures); right.addTab(measures,'Measurements'); self.lm={}
         for k,t in LANDMARKS: self.lm[k]=Var(QLineEdit()); self.lm[k].w.setPlaceholderText('Automatic'); ml.addRow(t,self.lm[k].w)
-        self.warn=Label(''); self.warn.setWordWrap(True); ml.addRow(self.warn); split.setSizes([560,840]); right.setMinimumWidth(350); split.setStretchFactor(0,1); split.setStretchFactor(1,2); self.workspace_split=split; self.vertical_split=vertical
-        logbox=QWidget(); logbox.setObjectName("workspacePanel"); logl=QVBoxLayout(logbox); logl.setContentsMargins(12,8,12,10); row=QHBoxLayout(); logl.addLayout(row); log_title=QLabel('Diagnostic log'); log_title.setObjectName('sectionHeading'); row.addWidget(log_title); row.addStretch(); button(row,'Copy',lambda:QApplication.clipboard().setText(self.log.toPlainText())); button(row,'Clear',lambda:self.log.clear()); button(row,'Experiments',self.run_experiment); self.console_toggle=QToolButton(); self.console_toggle.setText('Hide log'); self.console_toggle.setCheckable(True); row.addWidget(self.console_toggle); self.log=QPlainTextEdit(); self.log.setObjectName('diagnosticLog'); self.log.setReadOnly(True); logl.addWidget(self.log); vertical.addWidget(logbox); vertical.setSizes([650,180]); self.console_toggle.toggled.connect(self._toggle_console); self.status=Label('Select a WWMI mod folder.'); self.status.setObjectName('footer'); l.addWidget(self.status)
-        for title,items in [('File',[('Browse folder',self.pick),('Open folder',self.open_folder),('Exit',self.close)]),('Tools',[('Analyze',self.analyze),('Show / hide',self.toggle_visibility)]),('Help',[('Manual',self.manual),('About',self.about)])]:
+        self.warn=Label(''); self.warn.setWordWrap(True); ml.addRow(self.warn); split.setSizes([940,470]); right.setMinimumWidth(350); split.setStretchFactor(0,2); split.setStretchFactor(1,1); self.workspace_split=split; self.vertical_split=vertical
+        logbox=QWidget(); logbox.setObjectName("workspacePanel"); logl=QVBoxLayout(logbox); logl.setContentsMargins(12,8,12,10); row=QHBoxLayout(); logl.addLayout(row); log_title=QLabel('Diagnostic log'); log_title.setObjectName('sectionHeading'); row.addWidget(log_title); row.addStretch(); button(row,'Copy',lambda:QApplication.clipboard().setText(self.log.toPlainText())); button(row,'Clear',lambda:self.log.clear()); button(row,'Experiments',self.run_experiment); self.console_toggle=QToolButton(); self.console_toggle.setText('Hide log'); self.console_toggle.setCheckable(True); row.addWidget(self.console_toggle); self.log=QPlainTextEdit(); self.log.setObjectName('diagnosticLog'); self.log.setReadOnly(True); logl.addWidget(self.log); vertical.addWidget(logbox); vertical.setSizes([650,180]); self.console_toggle.toggled.connect(self._toggle_console); self.status=Label('Select a WWMI mod folder.'); self.status.setObjectName('footer'); footer=QHBoxLayout(); l.addLayout(footer); footer.addWidget(self.status,1); brand=QLabel('Thicc Tool · Morphology editor · WWMI'); brand.setObjectName('footerBrand'); footer.addWidget(brand,0,Qt.AlignmentFlag.AlignRight)
+        self.experiment_status=QLabel('Experiments — Ready'); self.experiment_status.setObjectName('footer'); l.addWidget(self.experiment_status)
+        from experiment_workspace import ExperimentWorkspace
+        self.experiments=ExperimentWorkspace(self,HERE,te.find_ini); right.addTab(self.experiments,'Experiments')
+        for title,items in [('File',[('Browse folder',self.pick),('Open folder',self.open_folder),('Exit',self.close)]),('Tools',[('Analyze',self.analyze),('Show / hide',self.toggle_visibility)]),('View',[]),('Help',[('Manual',self.manual),('About',self.about)])]:
             menu=self.menuBar().addMenu(title)
             for text,fn in items: menu.addAction(text,fn)
-        self.live_check=QCheckBox('Live Preview'); self.live_check.setToolTip('Preview after release and 600 ms idle; 2 s computation budget. No writes.'); al.insertWidget(0,self.live_check); self.live_status=QLabel('Live off'); al.insertWidget(1,self.live_status); self.set_theme('Dark')
+            if title=='View':
+                theme_menu=menu.addMenu('Theme'); self.theme_group=QActionGroup(self); self.theme_group.setExclusive(True); self.theme_actions={}
+                for mode in ('Dark','Light'):
+                    action=theme_menu.addAction(mode); action.setCheckable(True); self.theme_group.addAction(action); self.theme_actions[mode]=action
+                    action.triggered.connect(lambda checked=False,m=mode:self.set_theme(m))
+        self.live_check=QCheckBox('Live Preview'); self.live_check.setToolTip('Preview after release and 600 ms idle; 2 s computation budget. No writes.'); al.insertWidget(0,self.live_check); self.live_status=QLabel('Live off'); al.insertWidget(1,self.live_status); self.set_theme('Dark'); self._load_morphology_values({})
     def _adopt_live_cache(self,work):
         src=Path(work,'belly_baseline.pkl')
         if src.is_file():
@@ -337,6 +364,8 @@ class App(QMainWindow):
             if self._live_dirty and not self._live_drag and self.live_check.isChecked() and not self._live_delay.isActive(): self._live_delay.start()
 
     def set_theme(self,mode):
+        mode=mode if mode in ('Dark','Light') else 'Dark'
+        self.theme_mode=mode; self.theme_actions[mode].setChecked(True)
         dark=mode=='Dark'
         bg,panel,field,alt,edge,fg,muted,hover,selected,accent = (
             ('#171717','#222222','#292929','#252525','#3c3c3c','#ededed','#a7a7a7','#343434','#37475a','#8db7e8') if dark else
@@ -346,7 +375,8 @@ class App(QMainWindow):
             QWidget {{background:{bg};color:{fg};font-family:'Segoe UI';font-size:13px;}}
             QWidget#workspacePanel,QTabWidget::pane {{background:{panel};border:1px solid {edge};border-radius:10px;}}
             QLabel,QCheckBox {{background:transparent;}}
-            QLabel#heading {{font-size:28px;font-weight:700;}}
+            QLabel#footerBrand {{color:{muted};font-size:12px;font-weight:600;padding:2px;}}
+            QToolTip {{background:{panel};color:{fg};border:1px solid {edge};padding:5px;}}
             QLabel#sectionHeading {{font-size:15px;font-weight:700;padding:2px 0 5px;}}
             QLabel#warning {{color:{'#dfb77c' if dark else '#80531b'};font-size:12px;padding:3px 0;}}
             QLabel#footer {{color:{muted};font-size:12px;padding:5px 2px;}}
@@ -588,80 +618,7 @@ class App(QMainWindow):
                 if not live: self.busy=False
         QTimer.singleShot(50,load)
     def run_experiment(self):
-        self._stop_live()
-        if self.busy:return
-        from experiment_runner import discover, invocation
-        root=Path(HERE).parent/'experiments'
-        try: scripts=discover(root)
-        except Exception:return messagebox.showerror('Experiments',traceback.format_exc())
-        if not scripts:return messagebox.showinfo('Experiments',f'Place Python scripts in {root}')
-        names=[str(p.relative_to(root)) for p in scripts]
-        name,ok=QInputDialog.getItem(self,'Experiments','Select a trusted local diagnostic script:',names,0,False)
-        if not ok:return
-        script=scripts[names.index(name)]
-        m=self.mod.get().strip()
-        m=os.path.abspath(m) if m else ''
-        ini=''
-        if m and os.path.isdir(m):
-            try:ini=os.path.abspath(te.find_ini(m))
-            except (Exception,SystemExit):pass
-        work=tempfile.mkdtemp(prefix='thicc-experiment-'); log=os.path.join(work,'experiment.log')
-        try:
-            cmd,env=invocation(script,root,HERE,m,ini)
-            if script.name=='32_belly_live_apply.py':
-                if not self.analysis or self.analyzed_mod!=os.path.abspath(m) or not self.analysis.get('ready'):
-                    raise ValueError('Analyze the selected mod and resolve anatomy before opening Belly Lab.')
-                snapshot=self.write_cfg(m,dry=True)
-                # Include every current slider, including values equal to the preset.
-                snapshot['amounts']={k:float(self.amount[k].get()) for k,_ in SLIDERS}
-                cfg_path=Path(work)/'live_config.json'
-                cfg_path.write_text(json.dumps(snapshot,ensure_ascii=False),encoding='utf-8')
-                env['THICC_LIVE_CONFIG']=str(cfg_path)
-                env['THICC_APPLIED_MARKER']=str(Path(work)/'applied.json')
-            with open(log,'wb') as f:
-                proc=subprocess.Popen(cmd,cwd=str(root),env=env,stdout=f,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        except Exception:
-            shutil.rmtree(work,ignore_errors=True); return messagebox.showerror('Experiments',traceback.format_exc())
-        self.busy=True; self.main.setEnabled(False); self.menuBar().setEnabled(False)
-        self.status.setText('Experiment working…'); self.say(f'\n===== EXPERIMENT: {name} =====\nMod: {m or "(none)"}\n')
-        self.job=dict(proc=proc,work=work,log=log,start=time.monotonic(),offset=0,decoder=codecs.getincrementaldecoder('utf-8')(errors='replace'),cancelled=False,mode='experiment',name=name,mod=m,interactive_write=script.name=='32_belly_live_apply.py')
-        self.overlay=QDialog(self); self.overlay.setWindowTitle('Experiments'); self.overlay.setWindowModality(Qt.WindowModality.ApplicationModal)
-        layout=QVBoxLayout(self.overlay); layout.addWidget(QLabel(name)); self.elapsed=QLabel('0 s'); layout.addWidget(self.elapsed)
-        cancel=QPushButton('Cancel experiment'); layout.addWidget(cancel)
-        def stop():
-            j=self.job
-            if j and j['mode']=='experiment' and j['proc'].poll() is None:
-                j['cancelled']=True; j['proc'].terminate(); cancel.setEnabled(False)
-        cancel.clicked.connect(stop)
-        if self.job['interactive_write']:
-            # Do not terminate a writer in the middle of replacing buffers.
-            cancel.setEnabled(False); cancel.setText('Close Belly Lab to finish')
-            self.overlay.reject=lambda:None
-        else: self.overlay.reject=stop
-        self.overlay.show()
-        self.timer=QTimer(self); self.timer.timeout.connect(self.poll_experiment); self.timer.start(100)
-
-    def poll_experiment(self):
-        j=self.job; finished=j['proc'].poll() is not None
-        with open(j['log'],'rb') as stream:
-            stream.seek(j['offset']); data=stream.read(); j['offset']=stream.tell()
-        chunk=j['decoder'].decode(data,final=finished)
-        if chunk:self.say(chunk)
-        elapsed=time.monotonic()-j['start']; self.elapsed.setText(f'{elapsed:.1f} s elapsed')
-        if not finished:return
-        self.timer.stop(); self.overlay.hide(); self.overlay.deleteLater()
-        self.main.setEnabled(True); self.menuBar().setEnabled(True); self.job=None; self.busy=False
-        status='Cancelled' if j['cancelled'] else ('Finished' if j['proc'].returncode==0 else 'Error')
-        from experiment_runner import completion_message
-        self.say(completion_message(j['name'], status, elapsed, j['proc'].returncode))
-        self.status.setText(f'{j["name"]} — {status.lower()} — {elapsed:.2f} s')
-        applied=Path(j['work'])/'applied.json'
-        if j.get('interactive_write') and applied.is_file():
-            self.preview_positions=None
-            self.viewer_mode.set('Current')
-            self.status.setText('Experimental Belly applied. Press F10 in game.')
-            self.show_full_body()
-        shutil.rmtree(j['work'],ignore_errors=True)
+        self.workspace_tabs.setCurrentWidget(self.experiments)
 
     def start_analysis(self,m,done,force=False): self.launch(m,'diagnose',done,force=force)
     def run_task(self,mode,done=None,save=True):
@@ -669,12 +626,14 @@ class App(QMainWindow):
         if self.busy:return
         m=self._check_mod()
         if not m:return
+        if mode in ('write','restore') and self.experiments.blocks_write(m):
+            return messagebox.showwarning('Experiments','Close Live Belly Lab before writing the same mod.')
         if save:
             if not self.analysis or self.analyzed_mod!=os.path.abspath(m):return messagebox.showwarning('Thicc Tool','Analyze the mod before continuing.')
             if not self.analysis.get('ready'):return messagebox.showwarning('Thicc Tool','Analysis incomplete or Anatomy changed. Review and save/analyze.\n\n'+'\n'.join(self.analysis.get('warnings',[])))
             try:
                 candidate=self.write_cfg(m,dry=True)
-                if candidate != getattr(self,"analysis_ui_baseline",None): self.write_cfg(m)
+                if candidate != self.read_cfg(m): self.write_cfg(m)
             except ValueError as e:return messagebox.showerror('Thicc Tool',str(e))
         self.launch(m,mode,done)
     def launch(self,m,mode,done,force=False):
@@ -820,7 +779,7 @@ class App(QMainWindow):
         finally:self.analysis=old
     def manual(self): self.show_text('Manual',MANUAL)
     def about(self):
-        info='Thicc Tool 028 Workspace / engine '+te.VERSION+'\nPython: '+sys.version+'\nExecutable: '+sys.executable
+        info='Thicc Tool 041 Workspace / engine '+te.VERSION+'\nPython: '+sys.version+'\nExecutable: '+sys.executable
         for name in ('numpy','scipy','PySide6','pyvista','pyvistaqt','vtk'):
             try:info+='\n'+name+': '+str(getattr(importlib.import_module(name),'__version__','Available'))
             except Exception as e:info+='\n'+name+': '+str(e)
@@ -835,6 +794,8 @@ class App(QMainWindow):
         d=QDialog(self); d.setWindowTitle(title); l=QVBoxLayout(d); box=QPlainTextEdit(text); box.setReadOnly(True); l.addWidget(box); d.resize(760,540); d.exec()
     def closeEvent(self,event):
         if self.busy:event.ignore();return
+        if self.experiments.run:
+            messagebox.showinfo('Experiments','Finish or cancel the experiment run before closing Thicc Tool.'); event.ignore(); return
         self._stop_live(); self._save_settings(); self._closing=True
         if self._live_job:
             j=self._live_job; j["proc"].kill(); j["proc"].wait(); shutil.rmtree(j["work"],ignore_errors=True); self._live_job=None
@@ -848,20 +809,22 @@ class App(QMainWindow):
             if s.get("workspace_sizes"): self.workspace_split.setSizes(s["workspace_sizes"])
             if s.get("vertical_sizes"): self.vertical_split.setSizes(s["vertical_sizes"])
             self.console_toggle.setChecked(bool(s.get("console_collapsed",False)))
-            self.workspace_tabs.setCurrentIndex(max(0,min(2,int(s.get("workspace_tab",0)))))
+            self.set_theme(s.get("theme","Dark"))
+            self.workspace_tabs.setCurrentIndex(max(0,min(self.workspace_tabs.count()-1,int(s.get("workspace_tab",0)))))
         except Exception:
             pass
         self.apply_preset()
 
     def _save_settings(self):
         try:
-            json.dump({"last_mod": self.mod.get(), "library": self.library, "library_last_dir": self.library_last_dir, "workspace_sizes": self.workspace_split.sizes(), "vertical_sizes": self.vertical_split.sizes(), "console_collapsed": self.console_toggle.isChecked(), "workspace_tab": self.workspace_tabs.currentIndex()}, open(SETTINGS, "w", encoding="utf-8"))
+            json.dump({"last_mod": self.mod.get(), "library": self.library, "library_last_dir": self.library_last_dir, "workspace_sizes": self.workspace_split.sizes(), "vertical_sizes": self.vertical_split.sizes(), "console_collapsed": self.console_toggle.isChecked(), "theme": self.theme_mode, "workspace_tab": self.workspace_tabs.currentIndex()}, open(SETTINGS, "w", encoding="utf-8"))
         except Exception:
             pass
 
     def apply_preset(self):
         for k, v in te.PRESETS[self.preset.get()].items():
             self.amount[k].set(v)
+            if k in self.depth_amount and self.morph_engine.get()=="Direct Section": self.depth_amount[k].set(v)
 
     def pick(self):
         if self.busy:
@@ -898,10 +861,11 @@ class App(QMainWindow):
         except Exception:
             return {}
 
-    def write_cfg(self, m, dry=False):
-        cfg = self.read_cfg(m)
+    def _morphology_values(self):
+        cfg={}
         cfg["bounce"] = next(k for k, v in BOUNCE_LABELS.items() if v == self.bounce.get())
         cfg["surface_shading"] = self.shading.get()
+        cfg["morphology_engine"] = self.morph_engine.get()
         cfg["deformation_field"] = self.field_mode.get()
         cfg["displacement_smoothing"] = self.taubin.get()
         cfg["final_regularization"] = dict(enabled=self.final_reg_group.isChecked(), **{k:v.get() for k,v in self.final_reg_controls.items()})
@@ -920,13 +884,72 @@ class App(QMainWindow):
                           if abs(self.amount[k].get() - base[k]) > 1e-6}
         cfg["inner_fill"] = bool(self.inner.get())
         cfg["inner_gap_mode"] = "Rounded transition"
-        cfg.pop("waist_morphology", None)
         from morphology.belly import basic_parameters, parameters
         belly_values = {k:v.value() for k,v in self.belly_controls.items()} if self.belly_advanced.isChecked() else basic_parameters(self.belly_amount.value())
         cfg["belly_morphology"] = dict(amount=self.belly_amount.value(), advanced=self.belly_advanced.isChecked(), **belly_values)
         parameters(cfg["belly_morphology"])
         cfg["virtual_inguinal"] = bool(self.virtual.get())
         cfg["surface_rounding"] = bool(self.rounding.get())
+        cfg["direct_depth"] = {k:v.get() for k,v in self.depth_amount.items()} if self.morph_engine.get()=="Direct Section" else {}
+        return cfg
+    def _load_morphology_values(self,cfg):
+        cfg=with_advanced_defaults(cfg,self.morph_engine.get())
+        self.shading.set(cfg.get("surface_shading", "Original"))
+        self.field_mode.set(cfg.get("deformation_field", "Legacy"))
+        self.taubin.set(bool(cfg.get("displacement_smoothing", False)))
+        reg=cfg.get("final_regularization", {})
+        self.final_reg_group.setChecked(bool(reg.get("enabled", False)))
+        for k,v in self.final_reg_controls.items(): v.set(reg.get(k, {"strength":0.35,"tolerance":0.20}[k]))
+        self.arm_protection.set(bool(cfg.get("advanced_arm_protection", False)))
+        self.advanced_clothing.set(bool(cfg.get("advanced_clothing", False)))
+        self.hip_profile_group.setChecked(bool(cfg.get("coupled_hips",False)))
+        for k,v in self.hip_profile.items(): v.set(cfg.get("hip_profile",{}).get(k,{"upper":1.4,"lower":1.65,"peak":0.}[k]))
+        self.relative_silhouette.set(bool(cfg.get("relative_silhouette", False)))
+        self.silhouette_strength.set(cfg.get("silhouette_strength", 1.0))
+        self.direction_group.setChecked(bool(cfg.get("directional_enabled", False)))
+        for key,pair in self.direction.items():
+            for control,value in zip(pair,cfg.get("directional_values", {}).get(key,[1,1])): control.set(value)
+        self.bounce.set(BOUNCE_LABELS.get(cfg.get("bounce", "normal"), "Normal"))
+        self.preset.set(cfg.get("preset") if cfg.get("preset") in te.PRESETS else "pear")
+        self.apply_preset()
+        for k, v in cfg.get("amounts", {}).items():
+            if k in self.amount:
+                self.amount[k].set(v)
+        self.inner.set(bool(cfg.get("inner_fill", False)))
+        from morphology.belly import basic_parameters
+        belly=cfg.get("belly_morphology", {})
+        self.belly_advanced.setChecked(False)
+        self.belly_amount.setValue(belly.get("amount",0.))
+        self.belly_advanced.setChecked(bool(belly.get("advanced",False)))
+        for k,v in basic_parameters(self.belly_amount.value()).items(): self.belly_controls[k].setValue(belly.get(k,v))
+        self.virtual.set(bool(cfg.get("virtual_inguinal", True)))
+        self.rounding.set(bool(cfg.get("surface_rounding", True)))
+        for k,v in self.depth_amount.items(): v.set(cfg.get("direct_depth",{}).get(k,self.amount[k].get()))
+    def _switch_morphology_engine(self,index):
+        if self._engine_loading: return
+        engine=('Legacy','Direct Section')[index]
+        old=self.morph_engine.get()
+        if old==engine: return
+        self._stop_live()
+        self.engine_profiles[old]=self._morphology_values()
+        self._engine_loading=True
+        try:
+            self.morph_engine.set(engine)
+            target=switch_profile(self.engine_profiles,self.engine_profiles[old],engine)
+            self._load_morphology_values(target)
+        finally: self._engine_loading=False
+        self.preview_positions=None
+        self.viewer_mode.set('Current')
+        self._stop_live()
+        self._live_changed()
+
+    def write_cfg(self, m, dry=False):
+        cfg = self.read_cfg(m)
+        active=self._morphology_values()
+        self.engine_profiles[self.morph_engine.get()]=active
+        cfg.update(active)
+        cfg["engine_profiles"]=dict(self.engine_profiles)
+        cfg.pop("waist_morphology",None)
         if self.analysis and self.analyzed_mod == os.path.abspath(m):
             roles = {self.tree.item(i, "text"): ROLE_KEYS[self.tree.set(i, "role")]
                      for i in self.tree.get_children() if self.tree.item(i,"text")!=FULL_BODY}
@@ -959,7 +982,7 @@ class App(QMainWindow):
         if not force and save_current and self.analysis and self.analyzed_mod == os.path.abspath(m):
             try:
                 candidate=self.write_cfg(m,dry=True)
-                if candidate != getattr(self,"analysis_ui_baseline",None): self.write_cfg(m)
+                if candidate != self.read_cfg(m): self.write_cfg(m)
             except ValueError as e:
                 messagebox.showerror("Thicc Tool", str(e)); return
         self.pending_mod = None
@@ -1000,37 +1023,15 @@ class App(QMainWindow):
                                  tags=(role,))
                 self.refresh_role_tooltip(self.tree.rowCount()-1)
             cfg = res["cfg"]
-            self.shading.set(cfg.get("surface_shading", "Original"))
-            self.field_mode.set(cfg.get("deformation_field", "Legacy"))
-            self.taubin.set(bool(cfg.get("displacement_smoothing", False)))
-            reg=cfg.get("final_regularization", {})
-            self.final_reg_group.setChecked(bool(reg.get("enabled", False)))
-            for k,v in self.final_reg_controls.items(): v.set(reg.get(k, {"strength":0.35,"tolerance":0.20}[k]))
-            self.arm_protection.set(bool(cfg.get("advanced_arm_protection", False)))
-            self.advanced_clothing.set(bool(cfg.get("advanced_clothing", False)))
-            self.hip_profile_group.setChecked(bool(cfg.get("coupled_hips",False)))
-            for k,v in self.hip_profile.items(): v.set(cfg.get("hip_profile",{}).get(k,{"upper":1.4,"lower":1.65,"peak":0.}[k]))
-            self.relative_silhouette.set(bool(cfg.get("relative_silhouette", False)))
-            self.silhouette_strength.set(cfg.get("silhouette_strength", 1.0))
-            self.direction_group.setChecked(bool(cfg.get("directional_enabled", False)))
-            for key,pair in self.direction.items():
-                for control,value in zip(pair,cfg.get("directional_values", {}).get(key,[1,1])): control.set(value)
-            self.bounce.set(BOUNCE_LABELS.get(cfg.get("bounce", "normal"), "Normal"))
-            if cfg.get("preset") in te.PRESETS:
-                self.preset.set(cfg["preset"])
-            self.apply_preset()
-            for k, v in cfg.get("amounts", {}).items():
-                if k in self.amount:
-                    self.amount[k].set(v)
-            self.inner.set(bool(cfg.get("inner_fill", False)))
-            from morphology.belly import basic_parameters
-            belly=cfg.get("belly_morphology", {})
-            self.belly_advanced.setChecked(False)
-            self.belly_amount.setValue(belly.get("amount",0.))
-            self.belly_advanced.setChecked(bool(belly.get("advanced",False)))
-            for k,v in basic_parameters(self.belly_amount.value()).items(): self.belly_controls[k].setValue(belly.get(k,v))
-            self.virtual.set(bool(cfg.get("virtual_inguinal", True)))
-            self.rounding.set(bool(cfg.get("surface_rounding", True)))
+            self._engine_loading=True
+            try:
+                self.engine_profiles=dict(cfg.get("engine_profiles",{}))
+                engine=cfg.get("morphology_engine","Legacy")
+                if engine not in ("Legacy","Direct Section"): engine="Legacy"
+                self.morph_engine.set(engine); self.engine_tabs.setCurrentIndex(0 if engine=="Legacy" else 1)
+                self._load_morphology_values(active_profile(cfg,engine))
+                self.engine_profiles[engine]=self._morphology_values()
+            finally: self._engine_loading=False
             over = cfg.get("landmarks", {})
             L = res["landmarks"]
             self.auto_lm = res.get("natural", L)

@@ -1,4 +1,7 @@
 """Report geometric overlap, exact quantized triangles and frozen/skin contacts."""
+
+EXPERIMENT_INFO = {'description': 'Report geometric overlaps and exact quantized triangles.', 'objective': 'Locate duplicated and nearby surfaces.', 'visual': 'Console only', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from itertools import combinations
 import numpy as np
 from scipy.spatial import cKDTree

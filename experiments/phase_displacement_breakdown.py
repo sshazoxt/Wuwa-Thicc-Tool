@@ -1,4 +1,7 @@
 """Trace production geometry stages without altering the production engine."""
+
+EXPERIMENT_INFO = {'description': 'Trace displacement through production stages.', 'objective': 'Find the stage introducing an artifact.', 'visual': 'Console only', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import numpy as np
 from preview_no_seam_guard import sandbox, geometry, run_preview, ids_for, bands
 

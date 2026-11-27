@@ -1,4 +1,7 @@
 """Isolate sliders using the production pipeline, with calibration intact."""
+
+EXPERIMENT_INFO = {'description': 'Isolate production morphology sliders.', 'objective': 'Identify which field causes an artifact.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from preview_no_seam_guard import sandbox, geometry, load_cfg
 from _morph_ab import run_case, report, viewer
 

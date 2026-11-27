@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Compare belly depth, width, height and offset.', 'objective': 'Evaluate abdominal volume distribution.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from _refinement_lab import *
 if __name__=='__main__':
     with PreviewSession(os.environ['THICC_MOD_DIR']) as s:

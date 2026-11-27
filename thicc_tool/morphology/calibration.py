@@ -62,6 +62,7 @@ def calibrate(sc, PR, skin_tri, L, amounts, cfg, REF, HIP_ENV, HIP_TARGET, smoot
 
     An optional outline factory and observer support read-only experiments.
     """
+    sc.legacy_hip_spline = None
     N = len(PR)
     # hip outline calibration (reference frame): silhouette growth -> target
     coupled = bool(cfg.get("coupled_hips", False)) and amounts["hips"] > 0
@@ -108,6 +109,16 @@ def calibrate(sc, PR, skin_tri, L, amounts, cfg, REF, HIP_ENV, HIP_TARGET, smoot
         print("\n===== DEFORMATION PHASE 2.6 / RELATIVE SILHOUETTE =====")
         print("Hip reference Z %.2f; local scale %.3f; waist target growth zero" % (hip_ref, scale))
     if observer is not None: observer("hip_target_final", locals())
+    if cfg.get("legacy_hip_repair", False) and amounts["hips"] > 0 and not zero_calibration:
+        from .legacy_hip_repair import fit
+        Hc, env, tgt, err = fit(sc, PRs, tri_l, zs, original_outline, outline, tgt, REF, amounts,
+                                coupled=coupled, relative=relative, ctrl=cfg.get("hip_profile"),
+                                hip_ref=locals().get("hip_ref"), factory=outline_factory)
+        valid = (env > .5) & np.isfinite(err)
+        print("hip calibration: residual %.3f cm (ref frame; constrained profile)" % (np.max(np.abs(err[valid])) if valid.any() else np.nan))
+        return dict(zs=zs, env=env, tgt=tgt, T0=T0, Hc=Hc, sv=sv, tri_l=tri_l,
+                    PRs=PRs, outline=outline, original_outline=original_outline,
+                    relative=relative, coupled=coupled, hip_ref=locals().get("hip_ref"), err=err)
     for it in range(1 if zero_calibration else 8):
         sc.hip = (zs, Hc)
         if coupled:

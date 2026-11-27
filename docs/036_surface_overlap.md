@@ -1,0 +1,3 @@
+# Patch 036 — Surface overlap diagnostics
+Apply over 035. Run 58–63 on Suoming only. No production files changed.
+59 reports VTK crossing line cells (not coplanar contact area); VTK may miss coplanar intersections. 60/61 estimate directional near-surface area by seven samples per triangle, not exact intersection area. 62 compares displacements at original closest points, not independent derivatives. 63 is an active unique exterior silhouette reference, not a watertight Boolean union. Open cuts in 58 remain unknown. All cases are read-only private dry runs. Requires existing PyVista/VTK. Windows rendering and real buffers not validated.

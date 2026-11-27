@@ -1,4 +1,7 @@
 """Read-only check of the experiment runner environment."""
+
+EXPERIMENT_INFO = {'description': 'Report Python and experiment environment.', 'objective': 'Verify runner and buffer paths.', 'visual': 'Console only', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import os
 import sys
 from pathlib import Path

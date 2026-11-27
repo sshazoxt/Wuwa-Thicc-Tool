@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Sweep hip intensities and report calibration residuals.', 'objective': 'Identify the threshold where the legacy estimator fails.', 'visual': 'Console only', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from _hip_sweep import *
 if __name__=='__main__':
     with sandbox() as (root,ini):

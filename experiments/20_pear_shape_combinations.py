@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Compare regional combinations for different silhouettes.', 'objective': 'Evaluate combined proportions.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from _regional_morph import *
 
 if __name__=='__main__':

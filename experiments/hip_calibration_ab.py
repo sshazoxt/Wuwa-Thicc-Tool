@@ -1,4 +1,7 @@
 """Compare the production field against zero lateral calibration correction."""
+
+EXPERIMENT_INFO = {'description': 'Compare production field and zero lateral correction.', 'objective': 'Isolate hip calibration contribution.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import numpy as np
 from preview_no_seam_guard import sandbox, geometry, load_cfg
 from _morph_ab import run_case, report, viewer

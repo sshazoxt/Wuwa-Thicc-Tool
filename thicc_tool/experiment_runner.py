@@ -1,6 +1,7 @@
 """Discovery and execution contract for trusted local diagnostic scripts."""
 from pathlib import Path
 import os
+import ast
 import sys
 
 
@@ -32,3 +33,37 @@ def completion_message(name, status, elapsed, returncode):
     """Identify the actual script, including its numeric prefix, on every exit."""
     return (f'\n===== EXPERIMENT {name} | {status.upper()} | '
             f'{elapsed:.3f}s | exit {returncode} =====\n')
+
+
+def experiment_details(path):
+    """Read literal metadata without importing or executing the script."""
+    try:
+        tree = ast.parse(Path(path).read_text(encoding='utf-8-sig'))
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'EXPERIMENT_INFO' for t in node.targets):
+                info = ast.literal_eval(node.value)
+                if isinstance(info, dict):
+                    return info
+        return {'description': ast.get_docstring(tree) or 'No description provided.'}
+    except (OSError, UnicodeError, SyntaxError, ValueError, TypeError, RecursionError):
+        return {'description': 'Experiment metadata unavailable.'}
+
+def parameter_source(info):
+    """Scripts opt in to current controls; no metadata defaults to own protocol."""
+    mode = info.get('parameter_source', 'protocol')
+    if mode not in ('protocol', 'saved', 'current'):
+        raise ValueError(f'Unknown experiment parameter source: {mode!r}')
+    return mode
+
+
+def experiment_tooltip(path):
+    info = experiment_details(path)
+    lines = [str(info.get('description', 'No description provided.'))]
+    if 'objective' in info: lines.append('Objective: ' + str(info['objective']))
+    if 'visual' in info: lines.append('Output: ' + str(info['visual']))
+    if 'batch' in info: lines.append('Automated: ' + ('Yes' if info['batch'] else 'No'))
+    if 'writes' in info: lines.append('Mod writes: ' + ('Explicit Apply only' if info['writes'] else 'No'))
+    try: lines.append('Parameter source: '+parameter_source(info))
+    except ValueError as exc: lines.append(str(exc))
+    lines.append('Parameters: '+str(info.get('parameters','Script-defined protocol; no live GUI input unless explicitly requested.')))
+    return '\n'.join(lines)

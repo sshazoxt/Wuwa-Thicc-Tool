@@ -69,6 +69,7 @@ def config(te,cfg):
     c=dict(cfg); amounts=dict(te.PRESETS[c.get('preset',te.DEFAULT_CFG['preset'])]); amounts.update(c.get('amounts',{}))
     c['amounts']={k:(amounts[k] if k=='hips' else 0.) for k in ('hips','butt','thighs','calves')}
     c['seam_guard']=False
+    c['morphology_engine']='Legacy'
     return c
 
 

@@ -1,3 +1,6 @@
+
+EXPERIMENT_INFO = {'description': 'Inspect waist variants with synchronized views.', 'objective': 'Compare waist placement from multiple angles.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import os
 from morphology import PreviewSession
 from morphology.viewer import ExperimentViewer

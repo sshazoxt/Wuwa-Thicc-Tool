@@ -1,4 +1,7 @@
 """Compare old and new transverse profiles without writing buffers."""
+
+EXPERIMENT_INFO = {'description': 'Compare legacy and extended transverse belly profiles.', 'objective': 'Evaluate lateral coverage and shape.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import os
 from morphology import PreviewSession
 from morphology.belly import field, basic_parameters

@@ -1,4 +1,7 @@
 """Live Belly lab on top of the current production morphology; explicit opt-in writes."""
+
+EXPERIMENT_INFO = {'description': 'Interactive live belly lab with explicit Apply.', 'objective': 'Test abdomen controls on the current morphology baseline.', 'visual': 'Interactive viewer', 'batch': False, 'writes': True, 'parameter_source': 'current', 'parameters': 'Snapshot of the current Morphology controls and current mod roles. Interactive only.'}
+
 import os
 import json
 from pathlib import Path

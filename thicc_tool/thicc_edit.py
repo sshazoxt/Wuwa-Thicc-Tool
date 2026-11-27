@@ -52,6 +52,8 @@ BOUNCE_LEVELS = ("normal", "soft", "medium", "extra")
 
 DEFAULT_CFG = {
     "bounce": "normal",
+    "morphology_engine": "Legacy",
+    "legacy_hip_repair": True,
     "preset": "pear",
     "amounts": {},            # per-key overrides of the preset multipliers
     "belly_morphology": {"amount": 0.0, "advanced": False},
@@ -137,6 +139,9 @@ class Sculpt:
         self.leg = (z, gauss_smooth(z, base * mult, 1.2))
         self.axis = None
         self.hip = None
+        self.direct_hip = None
+        self.direct_thigh = None
+        self.direct_depth = {}
         self.inner = None
         self.root = None
         self.rounding = None
@@ -201,7 +206,14 @@ class Sculpt:
     def field(self, px, py, pz):
         X, Y, Z = self.to_ref(px, py, pz)
         dX, dY = self.field_ref(X, Y, Z)
-        return dX * self.s, dY * self.s
+        dx, dy = dX * self.s, dY * self.s
+        if self.direct_hip is not None:
+            hx, hy = self.direct_hip.field(px, py, pz, self.a["hips"], self.direction["hips"], self.direct_depth.get("hips"))
+            dx += hx; dy += hy
+        if self.direct_thigh is not None:
+            tx, ty = self.direct_thigh.field(px, py, pz, self.a["thighs"], self.direction["thighs"], self.direct_depth.get("thighs"))
+            dx += tx; dy += ty
+        return dx, dy
 
 
 # ================================================================ geometry helpers
@@ -1499,15 +1511,50 @@ def run(mod, mode, bounce=None, automatic_proposal=False, *, config_override=Non
                         f"p90={np.percentile(r, 90):.3f}"
                     )
 
-    from morphology.calibration import calibrate
-    calibration = calibrate(sc, PR, skin_tri, L, amounts, cfg, REF, HIP_ENV, HIP_TARGET, smoothstep,
-                            observer=observer, outline_factory=outline_factory, zero_calibration=zero_calibration)
-    # Compatibility names used by final silhouette reporting and older diagnostics.
-    zs, env, tgt, T0, Hc, sv, tri_l, PRs, outline, original_outline, relative, coupled, hip_ref, err = (
-        calibration[k] for k in ("zs", "env", "tgt", "T0", "Hc", "sv", "tri_l", "PRs", "outline",
-                                  "original_outline", "relative", "coupled", "hip_ref", "err"))
-    if observer is not None: observer("calibrated", locals())
-    if disable_hip: sc.hip = None
+    engine = cfg.get("morphology_engine", "Legacy")
+    from morphology.direct_hips import ENGINES
+    if engine not in ENGINES:
+        raise ValueError("Unknown morphology engine: " + str(engine))
+    print("Morphology engine: " + engine)
+    if engine == "Direct Section":
+        relative = coupled = False
+        sc.direct_depth = dict(cfg.get("direct_depth", {}))
+        for key,limit in (("hips",5),("thighs",2)):
+            if key in sc.direct_depth and (not np.isfinite(sc.direct_depth[key]) or not 0<=sc.direct_depth[key]<=limit):
+                raise ValueError("Invalid Direct Section depth: " + key)
+        hip_active = bool(amounts["hips"] or sc.direct_depth.get("hips",0))
+        thigh_active = bool(amounts["thighs"] or sc.direct_depth.get("thighs",0))
+        if cfg.get("coupled_hips") or cfg.get("relative_silhouette"):
+            print("[Direct Section] Legacy hip calibration options ignored; saved settings preserved.")
+        if (hip_active and not disable_hip and not zero_calibration) or thigh_active:
+            names = [n for n in SKIN if n in reference["active"]]
+            if not names:
+                raise ValueError("Direct Section requires active Skin draws; review Wardrobe.")
+            active_tri = np.concatenate([tris(n) for n in names])
+            active_tri = active_tri[(armw[active_tri] < 0.01).all(1)]
+            if hip_active and not disable_hip and not zero_calibration:
+                from morphology.direct_hips import DirectHipField
+                sc.direct_hip = DirectHipField(P0, active_tri, L)
+                print("[Direct Section] bounds / peak: %.3f / %.3f / %.3f cm; unit %.4f cm" % (sc.direct_hip.lo, sc.direct_hip.peak, sc.direct_hip.hi, sc.direct_hip.unit))
+            if thigh_active:
+                from morphology.direct_thighs import DirectThighField
+                sc.direct_thigh = DirectThighField(P0, active_tri, L, hip_reference=sc.direct_hip)
+                # Retain only the original calf contribution in the legacy leg field.
+                calf_only = dict(amounts, thighs=0.)
+                sc.leg = Sculpt(calf_only, False).leg
+                sc.inner = None
+                print("[Direct Thighs] knee / peak / root / top: %.3f / %.3f / %.3f / %.3f cm; units %s" % (sc.direct_thigh.lo, sc.direct_thigh.peak, sc.direct_thigh.hi, sc.direct_thigh.top, sc.direct_thigh.units))
+        if observer is not None: observer("calibrated", locals())
+    else:
+        from morphology.calibration import calibrate
+        calibration = calibrate(sc, PR, skin_tri, L, amounts, cfg, REF, HIP_ENV, HIP_TARGET, smoothstep,
+                                observer=observer, outline_factory=outline_factory, zero_calibration=zero_calibration)
+        # Compatibility names used by final silhouette reporting and older diagnostics.
+        zs, env, tgt, T0, Hc, sv, tri_l, PRs, outline, original_outline, relative, coupled, hip_ref, err = (
+            calibration[k] for k in ("zs", "env", "tgt", "T0", "Hc", "sv", "tri_l", "PRs", "outline",
+                                      "original_outline", "relative", "coupled", "hip_ref", "err"))
+        if observer is not None: observer("calibrated", locals())
+        if disable_hip: sc.hip = None
     # Calibrate the baseline first; otherwise calibration cancels the X control.
     directional = cfg.get("directional_expansion", {})
     for key in sc.direction:
@@ -1521,7 +1568,10 @@ def run(mod, mode, bounce=None, automatic_proposal=False, *, config_override=Non
     if directional_active and cfg.get('surface_rounding', True):
         print("Thigh rounding skipped: radial correction can reintroduce disabled directions.")
     if cfg.get('surface_rounding', True) and not directional_active:
-        fit_rounding(sc, PR, [tris(n) for n in SKIN], L)
+        if sc.direct_thigh is not None:
+            print('Legacy thigh rounding skipped for Direct Thighs; final regularization remains available.')
+        else:
+            fit_rounding(sc, PR, [tris(n) for n in SKIN], L)
 
     # ---- apply -------------------------------------------------------------
     if field_observer is not None: sc.field_observer = field_observer

@@ -1,4 +1,7 @@
 """Sample point-to-triangle distances in original and current geometry, by height."""
+
+EXPERIMENT_INFO = {'description': 'Sample surface distances by height.', 'objective': 'Locate overlap bands before and after deformation.', 'visual': 'Console only', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 from itertools import combinations
 import numpy as np
 from preview_no_seam_guard import sandbox, geometry, load_cfg

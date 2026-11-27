@@ -1,4 +1,7 @@
 """Compare the production dry-run with and without Seam Guard, in a private copy."""
+
+EXPERIMENT_INFO = {'description': 'Compare dry-run geometry with Seam Guard on and off.', 'objective': 'Determine whether Seam Guard causes the defect.', 'visual': 'PNG in batch', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import os
 import sys
 import json
@@ -31,7 +34,7 @@ def sandbox():
             if p.is_file():
                 shutil.copy2(p, root/p.name)
         print('Private working copy:', root, flush=True)
-        print('Using SAVED settings, not unsaved GUI controls.', flush=True)
+        print('Using isolated experiment configuration; source:',os.environ.get('THICC_PARAMETER_MODE','protocol'), flush=True)
         print('Saved seam_guard:', load_cfg(root).get('seam_guard', True), flush=True)
         yield root, ini.name
 

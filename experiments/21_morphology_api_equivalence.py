@@ -1,4 +1,7 @@
 """Compare direct production dry run and the modular preview API on the same snapshot."""
+
+EXPERIMENT_INFO = {'description': 'Compare modular preview with direct production dry run.', 'objective': 'Verify numerical equivalence.', 'visual': 'Console only', 'batch': True, 'writes': False, 'parameter_source': 'saved', 'parameters': 'Saved configuration for this mod; the experiment may override individual values in its own cases.'}
+
 import numpy as np
 from preview_no_seam_guard import sandbox,load_cfg
 from morphology import PreviewSession
