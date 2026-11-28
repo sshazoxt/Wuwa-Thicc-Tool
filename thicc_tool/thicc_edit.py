@@ -1515,7 +1515,7 @@ def run(mod, mode, bounce=None, automatic_proposal=False, *, config_override=Non
     from morphology.direct_hips import ENGINES
     if engine not in ENGINES:
         raise ValueError("Unknown morphology engine: " + str(engine))
-    print("Morphology engine: " + engine)
+    print("Morphology engine: " + ("ADS (Anny Direct Section, C2)" if engine == "Direct Section" and not (mode == "dry" and cfg.get("_direct_section_045", False)) else engine))
     if engine == "Direct Section":
         relative = coupled = False
         sc.direct_depth = dict(cfg.get("direct_depth", {}))
@@ -1533,12 +1533,12 @@ def run(mod, mode, bounce=None, automatic_proposal=False, *, config_override=Non
             active_tri = np.concatenate([tris(n) for n in names])
             active_tri = active_tri[(armw[active_tri] < 0.01).all(1)]
             if hip_active and not disable_hip and not zero_calibration:
-                from morphology.direct_hips import DirectHipField
-                sc.direct_hip = DirectHipField(P0, active_tri, L)
+                from morphology.ads import make_hip
+                sc.direct_hip = make_hip(P0, active_tri, L, ds045=(mode == "dry" and cfg.get("_direct_section_045", False)))
                 print("[Direct Section] bounds / peak: %.3f / %.3f / %.3f cm; unit %.4f cm" % (sc.direct_hip.lo, sc.direct_hip.peak, sc.direct_hip.hi, sc.direct_hip.unit))
             if thigh_active:
-                from morphology.direct_thighs import DirectThighField
-                sc.direct_thigh = DirectThighField(P0, active_tri, L, hip_reference=sc.direct_hip)
+                from morphology.ads import make_thigh
+                sc.direct_thigh = make_thigh(P0, active_tri, L, hip_reference=sc.direct_hip, ds045=(mode == "dry" and cfg.get("_direct_section_045", False)))
                 # Retain only the original calf contribution in the legacy leg field.
                 calf_only = dict(amounts, thighs=0.)
                 sc.leg = Sculpt(calf_only, False).leg

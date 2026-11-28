@@ -10,6 +10,7 @@ HERE=os.path.dirname(os.path.abspath(__file__))
 from anatomical_reconstruction import FULL_BODY
 from morphology_defaults import with_advanced_defaults, active_profile, switch_profile
 sys.path.insert(0,HERE)
+from morphology_help import help_label, help_widget, add_help
 class FocusWheelCombo(QComboBox):
     def wheelEvent(self, event):
         if self.hasFocus(): super().wheelEvent(event)
@@ -151,22 +152,22 @@ class App(QMainWindow):
         self.viewer_status=QLabel("3D engine: starting…"); self.viewer_status.setWordWrap(True); cl.addWidget(self.viewer_status)
         self.viewhost=QFrame(); self.viewhost.setObjectName("viewerHost"); self.viewlayout=QVBoxLayout(self.viewhost); self.viewlayout.setContentsMargins(0,0,0,0); self.placeholder=QLabel('Analyze a mod and select one or more parts.'); self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter); self.placeholder.setWordWrap(True); self.viewlayout.addWidget(self.placeholder,1); cl.addWidget(self.viewhost,1)
         row=QHBoxLayout(); cl.addLayout(row); button(row,'Front',lambda:self.camera('xz')); button(row,'Side',lambda:self.camera('yz')); button(row,'Perspective',lambda:self.camera('iso')); button(row,'Fit',lambda:self.camera('fit')); button(row,'Screenshot',self.viewer_screenshot).setToolTip('Save a high-resolution PNG of the current 3D view.')
-        right=QTabWidget(); right.setObjectName("inspector"); self.workspace_tabs=right; split.addWidget(right); split.addWidget(center); right.addTab(left,"Wardrobe"); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.morph_engine=combo(['Legacy','Direct Section']); self.morph_engine.w.hide(); self.engine_tabs=QTabBar(); self.engine_tabs.addTab('Legacy'); self.engine_tabs.addTab('Direct Section'); sh.addWidget(self.engine_tabs)
+        right=QTabWidget(); right.setObjectName("inspector"); self.workspace_tabs=right; split.addWidget(right); split.addWidget(center); right.addTab(left,"Wardrobe"); shape=QWidget(); sh=QVBoxLayout(shape); sh.setContentsMargins(12,12,12,12); sh.setSpacing(8); scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setWidget(shape); right.addTab(scroll,'Morphology'); self.morph_engine=combo(['Legacy','Direct Section']); self.morph_engine.w.hide(); self.engine_tabs=QTabBar(); self.engine_tabs.addTab('Legacy'); self.engine_tabs.addTab('ADS'); sh.addWidget(self.engine_tabs)
         self.direct_warning=QWidget(); warning_layout=QHBoxLayout(self.direct_warning); warning_layout.setContentsMargins(0,0,0,0); warning_layout.setSpacing(8)
         warning_icon=QLabel(); warning_icon.setPixmap(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning).pixmap(20,20)); warning_layout.addWidget(warning_icon,0,Qt.AlignmentFlag.AlignTop)
-        warning_text=QLabel('Experimental engine — Direct Section is under development. Deformation artifacts may occur.'); warning_text.setObjectName('warning'); warning_text.setWordWrap(True); warning_layout.addWidget(warning_text,1); sh.addWidget(self.direct_warning); self.direct_warning.hide()
-        self.engine_profiles={}; self._engine_loading=False; self.morph_engine.w.setToolTip('Direct Section: anatomical Hips and Thighs; Glutes and Calves retain their original fields.'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(QLabel('Base shape')); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}; self.depth_amount={}; self.width_labels={}; self.depth_rows={}
+        warning_text=QLabel('ADS — adaptive Anny reference curves. Extreme settings may cause deformation or clipping.'); warning_text.setObjectName('warning'); warning_text.setWordWrap(True); warning_layout.addWidget(warning_text,1); sh.addWidget(self.direct_warning); self.direct_warning.hide()
+        self.engine_profiles={}; self._engine_loading=False; self.morph_engine.w.setToolTip('ADS: adaptive C2 Hips and Thighs profiles; Glutes and Calves retain their original fields.'); self.preset=combo(te.PRESETS); self.preset.set('pear'); sh.addWidget(help_label('Base shape','preset')[0]); sh.addWidget(self.preset.w); self.preset.w.currentTextChanged.connect(lambda _:self.apply_preset()); self.amount={}; self.depth_amount={}; self.width_labels={}; self.depth_rows={}
         for k,t in SLIDERS:
             if k in ('butt','thighs'):
                 heading=QLabel('Pelvis' if k=='butt' else 'Legs'); heading.setObjectName('sectionHeading'); sh.addWidget(heading)
-            label=QLabel(t); sh.addWidget(label); self.width_labels[k]=(label,t); row=QHBoxLayout(); sh.addLayout(row); slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus); slider.setRange(0,500 if k=='hips' else 200); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,5 if k=='hips' else 2); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1); slider.setValue(100); slider.valueChanged.connect(lambda v,s=spin:s.setValue(v/100)); spin.valueChanged.connect(lambda v,s=slider:s.setValue(round(v*100))); row.addWidget(slider,1); row.addWidget(spin); self.amount[k]=Var(spin)
+            label_row,label=help_label(t,k); sh.addWidget(label_row); self.width_labels[k]=(label,t); row=QHBoxLayout(); sh.addLayout(row); slider=FocusWheelSlider(Qt.Orientation.Horizontal); slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus); slider.setRange(0,500 if k=='hips' else 200); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,5 if k=='hips' else 2); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(1); slider.setValue(100); slider.valueChanged.connect(lambda v,s=spin:s.setValue(v/100)); spin.valueChanged.connect(lambda v,s=slider:s.setValue(round(v*100))); row.addWidget(slider,1); row.addWidget(spin); self.amount[k]=Var(spin)
             if k in ('hips','thighs'):
-                panel=QWidget(); layout=QVBoxLayout(panel); layout.setContentsMargins(0,0,0,0); layout.addWidget(QLabel(t+' Depth (Y)')); r=QHBoxLayout(); layout.addLayout(r)
+                panel=QWidget(); layout=QVBoxLayout(panel); layout.setContentsMargins(0,0,0,0); layout.addWidget(help_label(t+' Depth (Y)',k+'_y')[0]); r=QHBoxLayout(); layout.addLayout(r)
                 d=FocusWheelSpin(); d.setRange(0,5 if k=='hips' else 2); d.setDecimals(2); d.setSingleStep(.05); sl=FocusWheelSlider(Qt.Orientation.Horizontal); sl.setRange(0,500 if k=='hips' else 200); sl.valueChanged.connect(lambda v,s=d:s.setValue(v/100)); d.valueChanged.connect(lambda v,s=sl:s.setValue(round(v*100))); r.addWidget(sl,1); r.addWidget(d); sh.addWidget(panel); self.depth_amount[k]=Var(d); self.depth_rows[k]=panel; panel.hide()
         heading=QLabel("Abdomen"); heading.setObjectName("sectionHeading"); sh.addWidget(heading)
         # Belly basic and advanced share one persisted configuration, not preset amounts.
         from morphology.belly import LIMITS, basic_parameters
-        row=QHBoxLayout(); sh.addLayout(row); row.addWidget(QLabel('Belly')); row.addStretch()
+        row=QHBoxLayout(); sh.addLayout(row); row.addWidget(QLabel('Belly')); add_help(row,'belly'); row.addStretch()
         self.belly_advanced=QToolButton(); self.belly_advanced.setText('Advanced'); self.belly_advanced.setCheckable(True); self.belly_advanced.setToolTip('Advanced starts from the current basic profile. Returning to Basic uses the universal amount.'); row.addWidget(self.belly_advanced)
         def belly_control(layout, lo, hi, value, scale=1000):
             row=QHBoxLayout(); layout.addLayout(row)
@@ -177,7 +178,7 @@ class App(QMainWindow):
         self.belly_slider,self.belly_amount=belly_control(sh,0.,1.,0.,100)
         self.belly_group=QGroupBox('Belly advanced controls'); bl=QVBoxLayout(self.belly_group); self.belly_controls={}
         for key,(lo,hi) in LIMITS.items():
-            bl.addWidget(QLabel(key.title())); _,spin=belly_control(bl,lo,hi,basic_parameters(0)[key]); self.belly_controls[key]=spin
+            bl.addWidget(help_label(key.title(),key)[0]); _,spin=belly_control(bl,lo,hi,basic_parameters(0)[key]); self.belly_controls[key]=spin
         sh.addWidget(self.belly_group); self.belly_group.hide()
         def belly_mode(advanced):
             if advanced:
@@ -189,13 +190,13 @@ class App(QMainWindow):
         def toggle_advanced(opened):
             advanced_body.setVisible(opened); self.advanced_toggle.setArrowType(Qt.ArrowType.DownArrow if opened else Qt.ArrowType.RightArrow)
         self.advanced_toggle.toggled.connect(toggle_advanced)
-        self.relative_silhouette=check('Relative silhouette calibration (experimental)'); advanced_layout.addWidget(self.relative_silhouette.w)
-        row=QHBoxLayout(); advanced_layout.addLayout(row); row.addWidget(QLabel('Target strength')); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,2); spin.setDecimals(2); spin.setSingleStep(.1); spin.setValue(1); row.addWidget(spin); self.silhouette_strength=Var(spin)
+        self.relative_silhouette=check('Relative silhouette calibration (experimental)'); advanced_layout.addWidget(help_widget(self.relative_silhouette.w,'relative'))
+        row=QHBoxLayout(); advanced_layout.addLayout(row); row.addWidget(QLabel('Target strength')); add_help(row,'target'); spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,2); spin.setDecimals(2); spin.setSingleStep(.1); spin.setValue(1); row.addWidget(spin); self.silhouette_strength=Var(spin)
         profile=QGroupBox('Coupled hip-thigh profile (experimental)'); profile.setCheckable(True); profile.setChecked(False)
         self.hip_profile_group=profile; self.hip_profile={}; pl=QFormLayout(profile)
         for key,label,lo,hi,default in [('upper','Upper spread',.5,2.5,1.4),('lower','Lower spread',.5,2.5,1.65),('peak','Peak height offset',-.3,.3,0.)]:
-            spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(lo,hi); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(default); pl.addRow(label,spin); self.hip_profile[key]=Var(spin)
-        advanced_layout.addWidget(profile)
+            spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(lo,hi); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(default); pl.addRow(help_label(label,key)[0],spin); self.hip_profile[key]=Var(spin)
+        pl.addRow(help_label('Profile help','coupled')[0]); advanced_layout.addWidget(profile)
         def engine_options():
             legacy=self.morph_engine.get()=='Legacy'
             self.direct_warning.setVisible(not legacy)
@@ -211,25 +212,25 @@ class App(QMainWindow):
         directional = QGroupBox('Directional expansion (experimental)'); directional.setCheckable(True); directional.setChecked(False)
         dl=QGridLayout(directional); dl.addWidget(QLabel('Region'),0,0); dl.addWidget(QLabel('X · Width'),0,1); dl.addWidget(QLabel('Y · Depth'),0,2)
         for i,(key,label) in enumerate(SLIDERS,1):
-            dl.addWidget(QLabel(label),i,0); pair=[]
+            dl.addWidget(help_label(label,'direction')[0],i,0); pair=[]
             for j in (1,2):
                 spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,2); spin.setDecimals(2); spin.setSingleStep(.1); spin.setValue(1); dl.addWidget(spin,i,j); pair.append(Var(spin))
             self.direction[key]=pair
         self.direction_group=directional; advanced_layout.addWidget(directional)
         note=QLabel('1 = unchanged; 0 = no contribution on that axis. Groin fill remains independent. Non-neutral settings skip thigh rounding.'); note.setWordWrap(True); advanced_layout.addWidget(note)
-        self.arm_protection=check("Advanced arm protection (experimental)"); advanced_layout.addWidget(self.arm_protection.w)
-        self.advanced_clothing=check("Advanced clothing adaptation (experimental)"); advanced_layout.addWidget(self.advanced_clothing.w)
+        self.arm_protection=check("Advanced arm protection (experimental)"); advanced_layout.addWidget(help_widget(self.arm_protection.w,'arms'))
+        self.advanced_clothing=check("Advanced clothing adaptation (experimental)"); advanced_layout.addWidget(help_widget(self.advanced_clothing.w,'clothing'))
         self.inner=check('Fill inner thigh gap'); self.virtual=check('Morphological groin fold',True); self.rounding=check('Thigh rounding',True)
-        advanced_layout.addWidget(self.inner.w); self.inner.w.setToolTip("Uses the rounded inner-knee transition.")
-        for v in (self.virtual,self.rounding): advanced_layout.addWidget(v.w)
+        advanced_layout.addWidget(help_widget(self.inner.w,'inner')); self.inner.w.setToolTip("Uses the rounded inner-knee transition.")
+        for v,k in ((self.virtual,'virtual'),(self.rounding,'rounding')): advanced_layout.addWidget(help_widget(v.w,k))
         self.rounding.w.setToolTip('Legacy thigh rounding is retained but skipped when Direct Thighs is active. Final morphological regularization remains available.')
-        advanced_layout.addWidget(QLabel('1.0 = base contribution · 0 = no contribution')); self.bounce=combo(BOUNCE_LABELS.values()); advanced_layout.addWidget(QLabel('Bounce · only Normal available')); advanced_layout.addWidget(self.bounce.w); self.shading=combo(['Original','Adaptive','Legacy','Geometric']); advanced_layout.addWidget(QLabel('Surface shading')); advanced_layout.addWidget(self.shading.w); self.field_mode=combo(['Legacy','Continuous']); advanced_layout.addWidget(QLabel('Deformation field')); advanced_layout.addWidget(self.field_mode.w); self.taubin=check("Taubin displacement smoothing (experimental)"); advanced_layout.addWidget(self.taubin.w)
+        advanced_layout.addWidget(QLabel('1.0 = base contribution · 0 = no contribution')); self.bounce=combo(BOUNCE_LABELS.values()); advanced_layout.addWidget(help_label('Bounce · only Normal available','bounce')[0]); advanced_layout.addWidget(self.bounce.w); self.shading=combo(['Original','Adaptive','Legacy','Geometric']); advanced_layout.addWidget(help_label('Surface shading','shading')[0]); advanced_layout.addWidget(self.shading.w); self.field_mode=combo(['Legacy','Continuous']); advanced_layout.addWidget(help_label('Deformation field','field')[0]); advanced_layout.addWidget(self.field_mode.w); self.taubin=check("Taubin displacement smoothing (experimental)"); advanced_layout.addWidget(help_widget(self.taubin.w,'taubin'))
         self.final_reg_group=QGroupBox('Final morphological regularization (experimental)'); self.final_reg_group.setCheckable(True); self.final_reg_group.setChecked(False)
         rl=QFormLayout(self.final_reg_group); self.final_reg_controls={}
         for key,label,default in [('strength','Strength',0.35),('tolerance','Noise tolerance',0.20)]:
             spin=FocusWheelSpin(); spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus); spin.setRange(0,1); spin.setDecimals(2); spin.setSingleStep(.05); spin.setValue(default)
-            rl.addRow(label,spin); self.final_reg_controls[key]=Var(spin)
-        advanced_layout.addWidget(self.final_reg_group); sh.addStretch(); actions=QWidget(); al=QHBoxLayout(actions); al.setContentsMargins(0,0,0,0); al.setSpacing(5); l.addWidget(actions); button(al,'Preview (no buffer writes)',self.preview); button(al,'Apply to mod',self.apply).setObjectName('primary'); button(al,'Restore original',self.restore);
+            rl.addRow(help_label(label,key)[0],spin); self.final_reg_controls[key]=Var(spin)
+        rl.addRow(help_label('Regularization help','regularization')[0]); advanced_layout.addWidget(self.final_reg_group); sh.addStretch(); actions=QWidget(); al=QHBoxLayout(actions); al.setContentsMargins(0,0,0,0); al.setSpacing(5); l.addWidget(actions); button(al,'Preview (no buffer writes)',self.preview); button(al,'Apply to mod',self.apply).setObjectName('primary'); button(al,'Restore original',self.restore);
         for b in actions.findChildren(QPushButton): b.setMinimumHeight(32); b.setStyleSheet('font-size: 12px; padding: 4px 6px;')
         measures=QWidget(); ml=QFormLayout(measures); right.addTab(measures,'Measurements'); self.lm={}
         for k,t in LANDMARKS: self.lm[k]=Var(QLineEdit()); self.lm[k].w.setPlaceholderText('Automatic'); ml.addRow(t,self.lm[k].w)
